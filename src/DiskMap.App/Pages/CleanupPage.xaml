@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="DiskMap.Pages.CleanupPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Padding="28,16,28,28" Spacing="16">
+            <Grid>
+                <StackPanel>
+                    <TextBlock Style="{StaticResource PageTitleStyle}" Text="Clean up" />
+                    <TextBlock x:Name="Subtitle" Style="{StaticResource SecondaryCaptionStyle}" />
+                </StackPanel>
+                <TextBlock
+                    x:Name="TotalText"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom"
+                    Style="{StaticResource SecondaryCaptionStyle}" />
+            </Grid>
+            <StackPanel x:Name="Cards" Spacing="4">
+                <StackPanel.ChildrenTransitions>
+                    <TransitionCollection>
+                        <EntranceThemeTransition IsStaggeringEnabled="True" />
+                        <RepositionThemeTransition />
+                    </TransitionCollection>
+                </StackPanel.ChildrenTransitions>
+            </StackPanel>
+            <TextBlock x:Name="EmptyText" Style="{StaticResource SecondaryCaptionStyle}" Visibility="Collapsed" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

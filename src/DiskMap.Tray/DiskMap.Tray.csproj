@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>DiskMap.Tray</RootNamespace>
+    <AssemblyName>DiskMap.Tray</AssemblyName>
+    <AssemblyTitle>diskmap</AssemblyTitle>
+    <ApplicationIcon>..\DiskMap.App\Assets\diskmap.ico</ApplicationIcon>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Published as a single native executable: a few MB of memory, no runtime needed. -->
+    <PublishAot>true</PublishAot>
+    <OptimizationPreference>Size</OptimizationPreference>
+    <UseSystemResourceKeys>true</UseSystemResourceKeys>
+    <StackTraceSupport>false</StackTraceSupport>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\DiskMap.Core\DiskMap.Core.csproj" />
+  </ItemGroup>
+
+</Project>

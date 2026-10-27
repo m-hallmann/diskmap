@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="DiskMap.Pages.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="1000" Padding="28,16,28,28" HorizontalAlignment="Stretch" Spacing="4">
+            <TextBlock Margin="0,0,0,16" Style="{StaticResource PageTitleStyle}" Text="Settings" />
+
+            <TextBlock Margin="1,0,0,8" Style="{StaticResource BodyStrongTextBlockStyle}" Text="Free-space alerts" />
+            <StackPanel x:Name="DriveCards" Spacing="4" />
+
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE823;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Check free space every" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="A quick system call. It doesn't scan the drive." />
+                    </StackPanel>
+                    <ComboBox x:Name="IntervalBox" Grid.Column="2" MinWidth="200" VerticalAlignment="Center" SelectionChanged="OnIntervalChanged">
+                        <ComboBoxItem Content="1 minute" Tag="1" />
+                        <ComboBoxItem Content="5 minutes" Tag="5" />
+                        <ComboBoxItem Content="15 minutes" Tag="15" />
+                        <ComboBoxItem Content="1 hour" Tag="60" />
+                    </ComboBox>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xEA8F;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Remind me again" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="After an alert, stay quiet until this happens." />
+                    </StackPanel>
+                    <ComboBox x:Name="RemindBox" Grid.Column="2" MinWidth="200" VerticalAlignment="Center" SelectionChanged="OnRemindChanged">
+                        <ComboBoxItem Content="After losing 5 more GB, or after a day" />
+                        <ComboBoxItem Content="After losing 10 more GB" />
+                        <ComboBoxItem Content="Every day while below the limit" />
+                        <ComboBoxItem Content="Only once" />
+                    </ComboBox>
+                </Grid>
+            </Border>
+
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE7E8;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Start with Windows" />
+                        <TextBlock x:Name="StartupNote" Style="{StaticResource SecondaryCaptionStyle}" />
+                    </StackPanel>
+                    <Button Grid.Column="2" VerticalAlignment="Center" Click="OnTestAlert" Content="Send a test alert" />
+                    <ToggleSwitch x:Name="StartupSwitch" OnContent="On" OffContent="Off" Grid.Column="3" MinWidth="0" VerticalAlignment="Center" Toggled="OnStartupToggled" />
+                </Grid>
+            </Border>
+
+            <TextBlock Style="{StaticResource SectionHeaderStyle}" Text="Deleting" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16" RowSpacing="8">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE74D;" />
+                    <StackPanel Grid.Column="1">
+                        <TextBlock Text="When I delete something" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="What the Delete button and the Delete key do." />
+                    </StackPanel>
+                    <RadioButtons x:Name="DeleteMode" Grid.Row="1" Grid.Column="1" SelectionChanged="OnDeleteModeChanged">
+                        <RadioButton Content="Delete permanently. Frees the space right away (recommended when a drive is full)." />
+                        <RadioButton Content="Move to the Recycle Bin. Space on the same drive isn't freed until you empty it." />
+                    </RadioButtons>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE72E;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Files that are in use" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="diskmap shows which app has them open." />
+                    </StackPanel>
+                    <ComboBox x:Name="LockedBox" Grid.Column="2" MinWidth="200" VerticalAlignment="Center" SelectionChanged="OnLockedChanged">
+                        <ComboBoxItem Content="Ask me" />
+                        <ComboBoxItem Content="Delete at next restart" />
+                        <ComboBoxItem Content="Skip them" />
+                    </ComboBox>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xEA18;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Windows folders are protected" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="Windows, WinSxS, system files and restore points can only be cleaned with Windows' own tools (DISM, powercfg, System Restore). They're striped in the map." />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <TextBlock Style="{StaticResource SectionHeaderStyle}" Text="Scanning and history" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE71B;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock x:Name="ScanMethodTitle" />
+                        <TextBlock x:Name="ScanMethodNote" Style="{StaticResource SecondaryCaptionStyle}" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE81C;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Keep scan history for" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="Used by What grew. Only folder totals are stored." />
+                    </StackPanel>
+                    <ComboBox x:Name="HistoryBox" Grid.Column="2" MinWidth="200" VerticalAlignment="Center" SelectionChanged="OnHistoryChanged">
+                        <ComboBoxItem Content="30 days" Tag="30" />
+                        <ComboBoxItem Content="90 days" Tag="90" />
+                        <ComboBoxItem Content="1 year" Tag="365" />
+                    </ComboBox>
+                </Grid>
+            </Border>
+
+            <TextBlock Style="{StaticResource SectionHeaderStyle}" Text="Appearance" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE790;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="App theme" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="Follows your Windows colours and accent by default." />
+                    </StackPanel>
+                    <ComboBox x:Name="ThemeBox" Grid.Column="2" MinWidth="200" VerticalAlignment="Center" SelectionChanged="OnThemeChanged">
+                        <ComboBoxItem Content="Use system setting" Tag="System" />
+                        <ComboBoxItem Content="Light" Tag="Light" />
+                        <ComboBoxItem Content="Dark" Tag="Dark" />
+                    </ComboBox>
+                </Grid>
+            </Border>
+
+            <TextBlock Style="{StaticResource SectionHeaderStyle}" Text="Updates" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE895;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Update automatically" />
+                        <TextBlock x:Name="UpdateNote" Style="{StaticResource SecondaryCaptionStyle}" />
+                    </StackPanel>
+                    <Button x:Name="CheckUpdatesButton" Grid.Column="2" VerticalAlignment="Center" Click="OnCheckUpdates" Content="Check now" />
+                    <ToggleSwitch x:Name="AutoUpdateSwitch" OnContent="On" OffContent="Off" Grid.Column="3" MinWidth="0" VerticalAlignment="Center" Toggled="OnAutoUpdateToggled" />
+                </Grid>
+            </Border>
+
+            <TextBlock Style="{StaticResource SectionHeaderStyle}" Text="About" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <Image x:Name="AboutLogo" Width="20" Height="20" VerticalAlignment="Center" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock x:Name="VersionText" />
+                        <TextBlock x:Name="DataFolderText" Style="{StaticResource SecondaryCaptionStyle}" IsTextSelectionEnabled="True" />
+                    </StackPanel>
+                    <Button Grid.Column="2" VerticalAlignment="Center" Click="OnOpenDataFolder" Content="Open data folder" />
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

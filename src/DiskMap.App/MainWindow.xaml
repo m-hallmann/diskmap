@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="DiskMap.MainWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:services="using:DiskMap.Services"
+    Title="diskmap">
+
+    <Window.SystemBackdrop>
+        <MicaBackdrop />
+    </Window.SystemBackdrop>
+
+    <Grid x:Name="RootGrid">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+
+        <TitleBar
+            x:Name="AppTitleBar"
+            Title="diskmap"
+            IsBackButtonVisible="False"
+            IsPaneToggleButtonVisible="True"
+            PaneToggleRequested="OnPaneToggleRequested">
+            <TitleBar.IconSource>
+                <ImageIconSource ImageSource="ms-appx:///Assets/logo-256.png" />
+            </TitleBar.IconSource>
+            <TitleBar.Content>
+                <AutoSuggestBox
+                    x:Name="SearchBox"
+                    MinWidth="300"
+                    MaxWidth="520"
+                    VerticalAlignment="Center"
+                    PlaceholderText="Search, try ext:gguf or size:&gt;20GB"
+                    QueryIcon="Find"
+                    QuerySubmitted="OnSearchSubmitted"
+                    TextChanged="OnSearchTextChanged" />
+            </TitleBar.Content>
+        </TitleBar>
+
+        <NavigationView
+            x:Name="Nav"
+            Grid.Row="1"
+            IsBackButtonVisible="Collapsed"
+            IsPaneToggleButtonVisible="False"
+            IsSettingsVisible="True"
+            IsTitleBarAutoPaddingEnabled="False"
+            OpenPaneLength="272"
+            PaneDisplayMode="Left"
+            SelectionChanged="OnNavSelectionChanged">
+
+            <NavigationView.PaneHeader>
+                <StackPanel Margin="0,0,0,4">
+                    <TextBlock
+                        Margin="16,4,0,4"
+                        FontWeight="SemiBold"
+                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Style="{StaticResource CaptionTextBlockStyle}"
+                        Text="Drives" />
+                    <ListView
+                        x:Name="DriveList"
+                        Padding="0"
+                        ItemsSource="{x:Bind State.Drives}"
+                        SelectionChanged="OnDriveSelectionChanged"
+                        SelectionMode="Single">
+                        <ListView.ItemTemplate>
+                            <DataTemplate x:DataType="services:DriveEntry">
+                                <Grid Padding="0,9,4,10" ColumnSpacing="12" RowSpacing="5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <FontIcon VerticalAlignment="Center" FontSize="16" Glyph="&#xEDA2;" />
+                                    <TextBlock Grid.Column="1" Text="{x:Bind Title}" TextTrimming="CharacterEllipsis" />
+                                    <ProgressBar
+                                        Grid.Row="1"
+                                        Grid.Column="1"
+                                        MinHeight="4"
+                                        CornerRadius="2"
+                                        Maximum="100"
+                                        ShowPaused="{x:Bind BelowLimit, Mode=OneWay}"
+                                        Value="{x:Bind UsedPercent, Mode=OneWay}" />
+                                    <TextBlock
+                                        Grid.Row="2"
+                                        Grid.Column="1"
+                                        Style="{StaticResource SecondaryCaptionStyle}"
+                                        Text="{x:Bind Subtitle, Mode=OneWay}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListView.ItemTemplate>
+                    </ListView>
+                    <NavigationViewItemSeparator Margin="0,4,0,0" />
+                </StackPanel>
+            </NavigationView.PaneHeader>
+
+            <NavigationView.MenuItems>
+                <NavigationViewItem x:Name="MapItem" Content="Map" Tag="map">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xECA5;" />
+                    </NavigationViewItem.Icon>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="GrowthItem" Tag="growth">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xE9D2;" />
+                    </NavigationViewItem.Icon>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="What grew" />
+                        <TextBlock
+                            x:Name="GrowthBadge"
+                            Grid.Column="1"
+                            Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryCaptionStyle}"
+                            VerticalAlignment="Center" />
+                    </Grid>
+                </NavigationViewItem>
+                <NavigationViewItem x:Name="CleanupItem" Tag="cleanup">
+                    <NavigationViewItem.Icon>
+                        <FontIcon Glyph="&#xEA99;" />
+                    </NavigationViewItem.Icon>
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="Clean up" />
+                        <TextBlock
+                            x:Name="CleanupBadge"
+                            Grid.Column="1"
+                            Margin="0,0,8,0"
+                            Style="{StaticResource SecondaryCaptionStyle}"
+                            VerticalAlignment="Center" />
+                    </Grid>
+                </NavigationViewItem>
+            </NavigationView.MenuItems>
+
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <StackPanel x:Name="Banners" Margin="28,16,28,0" Spacing="8">
+                    <InfoBar
+                        x:Name="UpdateBar"
+                        Title="Update ready"
+                        IsClosable="True"
+                        IsOpen="True"
+                        Severity="Success"
+                        Visibility="Collapsed">
+                        <InfoBar.ActionButton>
+                            <Button Click="OnApplyUpdate" Content="Restart to update" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                    <InfoBar
+                        x:Name="ElevationBar"
+                        Title="Running without admin rights"
+                        IsClosable="True"
+                        IsOpen="True"
+                        Message="diskmap is walking folders instead of reading the NTFS file table, which is slower and can't see hardlinks or some system folders."
+                        Severity="Informational"
+                        Visibility="Collapsed">
+                        <InfoBar.ActionButton>
+                            <Button Click="OnRestartElevated" Content="Restart as administrator" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                    <InfoBar
+                        x:Name="LowSpaceBar"
+                        IsClosable="True"
+                        IsOpen="True"
+                        Severity="Warning"
+                        Visibility="Collapsed">
+                        <InfoBar.ActionButton>
+                            <Button x:Name="LowSpaceAction" Click="OnSeeWhatGrew" Content="See what grew" />
+                        </InfoBar.ActionButton>
+                    </InfoBar>
+                    <InfoBar
+                        x:Name="NoticeBar"
+                        IsClosable="True"
+                        IsOpen="True"
+                        Visibility="Collapsed">
+                        <ProgressBar
+                            x:Name="NoticeProgress"
+                            Margin="0,0,0,12"
+                            IsIndeterminate="True"
+                            Visibility="Collapsed" />
+                    </InfoBar>
+                </StackPanel>
+                <Frame x:Name="ContentFrame" Grid.Row="1" />
+            </Grid>
+        </NavigationView>
+    </Grid>
+</Window>

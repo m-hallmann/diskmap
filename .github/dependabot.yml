@@ -1,0 +1,16 @@
+version: 2
+updates:
+  - package-ecosystem: nuget
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      windows-app-sdk:
+        patterns: ["Microsoft.WindowsAppSDK*", "Microsoft.Graphics.Win2D", "Microsoft.Windows.SDK.BuildTools"]
+      tests:
+        patterns: ["xunit*", "Microsoft.NET.Test.Sdk"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -1,0 +1,36 @@
+name: Bug report
+description: Something doesn't work or looks wrong
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, and what happened instead?
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: diskmap version
+      description: Settings → About, e.g. "diskmap 0.1.0 (installed)"
+    validations:
+      required: true
+  - type: dropdown
+    id: admin
+    attributes:
+      label: Was diskmap running as administrator?
+      options: ["Yes", "No", "Not sure"]
+  - type: input
+    id: windows
+    attributes:
+      label: Windows version
+      description: e.g. Windows 11 24H2, x64
+  - type: textarea
+    id: log
+    attributes:
+      label: Log
+      description: >
+        If it's about scanning or deleting, the end of diskmap.log helps (Settings → About → Open data folder).
+        Remove anything you don't want to share; the log can contain folder names.
+      render: text

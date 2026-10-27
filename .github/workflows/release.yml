@@ -1,0 +1,100 @@
+name: Release
+
+# Push a tag like v0.2.0 to build the installer and portable zip for x64 and ARM64.
+# Everything is uploaded to a *draft* release; publish it on GitHub when you're happy with it.
+# Installed and portable copies only see published releases, so drafts never reach users.
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.arch }}
+    strategy:
+      fail-fast: true
+      # One at a time: the second job merges its files into the draft the first one created.
+      max-parallel: 1
+      matrix:
+        include:
+          - arch: x64
+            platform: x64
+            runner: windows-latest
+          - arch: arm64
+            platform: ARM64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      CHANNEL: win-${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          global-json-file: global.json
+
+      - name: Version and release notes
+        id: version
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          "version=$version" >> $env:GITHUB_OUTPUT
+          # Release notes: the CHANGELOG section for this version.
+          $lines = Get-Content CHANGELOG.md
+          $start = ($lines | Select-String -Pattern "^## \[$([regex]::Escape($version))\]").LineNumber
+          if ($start) {
+            $rest = $lines[$start..($lines.Count - 1)]
+            $end = ($rest | Select-String -Pattern '^## \[').LineNumber | Select-Object -First 1
+            $notes = if ($end) { $rest[0..($end - 2)] } else { $rest }
+          } else {
+            $notes = @("diskmap $version")
+          }
+          $notes | Set-Content release-notes.md
+
+      - name: Restore tools
+        run: dotnet tool restore
+
+      - name: Test
+        if: matrix.arch == 'x64'
+        run: dotnet test tests/DiskMap.Core.Tests -c Release
+
+      - name: Publish app
+        run: >
+          dotnet publish src/DiskMap.App -c Release
+          -p:Platform=${{ matrix.platform }} -r win-${{ matrix.arch }}
+          -p:Version=${{ steps.version.outputs.version }} -o publish
+
+      - name: Publish tray helper (NativeAOT)
+        run: >
+          dotnet publish src/DiskMap.Tray -c Release -r win-${{ matrix.arch }}
+          -p:Version=${{ steps.version.outputs.version }} -o tray
+
+      - name: Add tray helper to the app folder
+        shell: pwsh
+        run: Copy-Item tray/DiskMap.Tray.exe publish/
+
+      - name: Get previous release for delta updates
+        continue-on-error: true
+        run: >
+          dotnet vpk download github --repoUrl ${{ github.server_url }}/${{ github.repository }}
+          --channel ${{ env.CHANNEL }} --outputDir releases --token ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Pack installer and portable zip
+        run: >
+          dotnet vpk pack --packId diskmap --packVersion ${{ steps.version.outputs.version }}
+          --packDir publish --mainExe DiskMap.exe --packTitle diskmap --packAuthors m-hallmann
+          --icon src/DiskMap.App/Assets/diskmap.ico --releaseNotes release-notes.md
+          --channel ${{ env.CHANNEL }} --runtime win-${{ matrix.arch }} --outputDir releases
+
+      - name: Upload to draft release
+        run: >
+          dotnet vpk upload github --repoUrl ${{ github.server_url }}/${{ github.repository }}
+          --token ${{ secrets.GITHUB_TOKEN }} --channel ${{ env.CHANNEL }} --outputDir releases
+          --releaseName "diskmap ${{ steps.version.outputs.version }}" --tag ${{ github.ref_name }} --merge
