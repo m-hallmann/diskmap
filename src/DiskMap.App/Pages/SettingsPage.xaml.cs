@@ -1,5 +1,6 @@
 using DiskMap.Core;
 using DiskMap.Core.Actions;
+using DiskMap.Core.Layout;
 using DiskMap.Core.Settings;
 using DiskMap.Services;
 using Microsoft.UI.Xaml;
@@ -35,6 +36,8 @@ public sealed partial class SettingsPage : Page
         HistoryBox.SelectedItem = HistoryBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == Settings.HistoryDays.ToString())
                                   ?? HistoryBox.Items[1];
         ThemeBox.SelectedItem = ThemeBox.Items.Cast<ComboBoxItem>().FirstOrDefault(i => (string)i.Tag == Settings.Theme) ?? ThemeBox.Items[0];
+        MapColorsBox.SelectedIndex = Settings.MapColors == MapColoring.Folder ? 0 : 1;
+        MapTilingBox.SelectedIndex = Settings.MapTiling == MapTiling.Rows ? 0 : 1;
 
         ScanMethodTitle.Text = S.IsElevated ? "Fast scan: reading the NTFS file table" : "Folder walk (no admin rights)";
         ScanMethodNote.Text = S.IsElevated
@@ -212,6 +215,20 @@ public sealed partial class SettingsPage : Page
         Settings.Theme = (string)item.Tag;
         Save();
         App.Current?.Window?.ApplyTheme();
+    }
+
+    private void OnMapColorsChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || MapColorsBox.SelectedIndex < 0) return;
+        Settings.MapColors = MapColorsBox.SelectedIndex == 0 ? MapColoring.Folder : MapColoring.FileType;
+        Save();
+    }
+
+    private void OnMapTilingChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_loading || MapTilingBox.SelectedIndex < 0) return;
+        Settings.MapTiling = MapTilingBox.SelectedIndex == 0 ? MapTiling.Rows : MapTiling.Squarified;
+        Save();
     }
 
     private void OnOpenDataFolder(object sender, RoutedEventArgs e)

@@ -15,22 +15,26 @@ internal static class Dialogs
         return new SolidColorBrush(Windows.UI.Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb));
     }
 
-    public static FrameworkElement Swatch(Category c, double size = 10, double radius = 3) => new Border
+    public static FrameworkElement Swatch(Category c, double size = 10, double radius = 3) => Swatch(CategoryBrush(c), size, radius);
+
+    public static FrameworkElement Swatch(Brush brush, double size = 10, double radius = 3) => new Border
     {
         Width = size,
         Height = size,
         CornerRadius = new CornerRadius(radius),
-        Background = CategoryBrush(c),
+        Background = brush,
         VerticalAlignment = VerticalAlignment.Center,
     };
 
-    public static Grid ItemRow(Category c, string name, string size)
+    public static Grid ItemRow(Category c, string name, string size) => ItemRow(CategoryBrush(c), name, size);
+
+    public static Grid ItemRow(Brush swatch, string name, string size)
     {
         var g = new Grid { ColumnSpacing = 10 };
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         g.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        g.Children.Add(Swatch(c));
+        g.Children.Add(Swatch(swatch));
         var nameText = new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(nameText, 1);
         g.Children.Add(nameText);

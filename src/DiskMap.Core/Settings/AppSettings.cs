@@ -9,6 +9,9 @@ public enum RemindPolicy { AfterFiveGbOrDaily, AfterTenGb, Daily, Once }
 
 public enum LockedFilePolicy { Ask, DeleteAtRestart, Skip }
 
+/// <summary>What the colours in the map stand for.</summary>
+public enum MapColoring { Folder, FileType }
+
 public sealed class DriveAlert
 {
     public string Drive { get; set; } = "C:\\";
@@ -34,6 +37,8 @@ public sealed class AppSettings
     public LockedFilePolicy LockedFiles { get; set; } = LockedFilePolicy.Ask;
     public int HistoryDays { get; set; } = 90;
     public string Theme { get; set; } = "System";
+    public MapColoring MapColors { get; set; } = MapColoring.Folder;
+    public Layout.MapTiling MapTiling { get; set; } = Layout.MapTiling.Rows;
     public bool AutoUpdate { get; set; } = true;
 
     public DriveAlert AlertFor(string drive, long totalBytes)

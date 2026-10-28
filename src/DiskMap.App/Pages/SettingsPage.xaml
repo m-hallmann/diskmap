@@ -180,6 +180,42 @@
                     </ComboBox>
                 </Grid>
             </Border>
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xE790;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Colour the map by" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="Folder gives each of the few big folders its own colour, shared by everything inside it." />
+                    </StackPanel>
+                    <ComboBox x:Name="MapColorsBox" Grid.Column="2" MinWidth="200" VerticalAlignment="Center" SelectionChanged="OnMapColorsChanged">
+                        <ComboBoxItem Content="Folder" />
+                        <ComboBoxItem Content="File type" />
+                    </ComboBox>
+                </Grid>
+            </Border>
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <FontIcon VerticalAlignment="Center" Glyph="&#xF0E2;" />
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                        <TextBlock Text="Arrange boxes in" />
+                        <TextBlock Style="{StaticResource SecondaryCaptionStyle}" Text="Rows read top to bottom, largest first. Squarified keeps boxes closest to square." />
+                    </StackPanel>
+                    <ComboBox x:Name="MapTilingBox" Grid.Column="2" MinWidth="200" VerticalAlignment="Center" SelectionChanged="OnMapTilingChanged">
+                        <ComboBoxItem Content="Rows" />
+                        <ComboBoxItem Content="Squarified" />
+                    </ComboBox>
+                </Grid>
+            </Border>
 
             <TextBlock Style="{StaticResource SectionHeaderStyle}" Text="Updates" />
             <Border Style="{StaticResource SettingsCardStyle}">
