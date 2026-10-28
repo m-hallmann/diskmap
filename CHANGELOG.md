@@ -1,5 +1,20 @@
 # Changelog
 
+## [Unreleased]
+
+- A quieter map. Folders are faint surfaces with a hairline edge and a plain title instead of coloured
+  title bars, and the gaps between boxes shrink with depth, so the nesting reads at a glance.
+- The map is coloured by folder: the few big folders a drive is organised into each get a colour that
+  everything inside them shares, and the chips above the map name them. Colour by file type is still
+  available in Settings.
+- New row layout (now the default): full-width rows that get shorter towards the bottom, largest items
+  first. The squarified layout is still available in Settings.
+- A folder that is almost all one subfolder shares one title with it, like "Users / alex", which leaves
+  more room for what's inside.
+- Big boxes, free space included, show their size as a large figure. Boxes too thin to read are folded
+  into the "small items" box.
+- Selecting a folder no longer moves its size label, and growth badges stay visible on every colour.
+
 ## [0.1.1] - 2026-10-28
 
 - Fixed drive totals above 100%: NTFS metadata such as `$BadClus` no longer counts as the size of the
