@@ -73,6 +73,123 @@ public class MapLayoutTests
             Assert.True(child.Rect.Y >= games.Rect.Y + 17, "children sit below the title bar");
         }
     }
+
+    [Fact]
+    public void A_folder_that_is_almost_all_one_subfolder_shares_its_title()
+    {
+        var root = Folder("C:\\",
+            Folder("Users",
+                Folder("alex", File("a.bin", 500_000), File("b.bin", 300_000)),
+                File("desktop.ini", 100)),
+            File("other.bin", 400_000));
+        ScanPostProcessor.AggregateSubtree(root);
+
+        var boxes = MapLayout.Build(root, new RectD(0, 0, 800, 600), freeBytes: 0);
+        var frame = boxes.Single(b => b.Kind == BoxKind.Frame);
+        Assert.Equal("alex", frame.Node!.Name);
+        Assert.Equal(["Users", "alex"], frame.Chain!.Select(n => n.Name));
+        Assert.True(frame.Shows(root.Child("Users")!));
+        Assert.DoesNotContain(boxes, b => b.Node?.Name == "Users" && b.Kind == BoxKind.Frame);
+    }
+
+    [Fact]
+    public void No_box_is_drawn_as_a_hairline()
+    {
+        // A long tail of sizes like a real folder: a few big files, then many small ones.
+        var files = Enumerable.Range(1, 300).Select(i => File($"f{i}.bin", 10_000_000 / (i * i) + 2_000)).ToArray();
+        var root = Folder("C:\\", Folder("Data", files), File("big.iso", 30_000_000));
+        ScanPostProcessor.AggregateSubtree(root);
+        foreach (var tiling in new[] { MapTiling.Squarified, MapTiling.Rows })
+        {
+            var boxes = MapLayout.Build(root, new RectD(0, 0, 900, 600), 0, new MapLayoutOptions { Tiling = tiling });
+            Assert.Contains(boxes, b => b.Kind == BoxKind.Rest);
+            foreach (var b in boxes.Where(b => b.Kind == BoxKind.Tile))
+            {
+                Assert.True(Math.Min(b.Rect.W, b.Rect.H) >= 5, $"{tiling}: {b.Node!.Name} is {b.Rect.W:0.#} x {b.Rect.H:0.#}");
+            }
+        }
+    }
+
+    [Fact]
+    public void Neighbours_keep_the_gap_of_their_depth()
+    {
+        var root = Folder("C:\\", Enumerable.Range(1, 12).Select(i => File($"f{i}.bin", 1000 * i)).ToArray());
+        ScanPostProcessor.AggregateSubtree(root);
+        var options = new MapLayoutOptions();
+        foreach (var tiling in new[] { MapTiling.Squarified, MapTiling.Rows })
+        {
+            var boxes = MapLayout.Build(root, new RectD(0, 0, 900, 600), 0, new MapLayoutOptions { Tiling = tiling });
+            for (int i = 0; i < boxes.Count; i++)
+            {
+                for (int j = i + 1; j < boxes.Count; j++)
+                {
+                    var a = boxes[i].Rect;
+                    var b = boxes[j].Rect;
+                    bool overlap = a.X < b.Right + options.Gap(0) - 0.5 && b.X < a.Right + options.Gap(0) - 0.5 &&
+                                   a.Y < b.Bottom + options.Gap(0) - 0.5 && b.Y < a.Bottom + options.Gap(0) - 0.5;
+                    Assert.False(overlap, $"{tiling}: {a} and {b} are closer than the gap");
+                }
+            }
+        }
+    }
+}
+
+public class RowLayoutTests
+{
+    [Fact]
+    public void Rows_span_the_width_and_get_shorter()
+    {
+        var weights = Enumerable.Range(1, 30).Select(i => 1000.0 / i).ToArray();
+        var bounds = new RectD(0, 0, 960, 600);
+        var rects = new RectD[weights.Length];
+        RowLayout.Layout(weights, bounds, rects);
+
+        double total = weights.Sum();
+        for (int i = 0; i < weights.Length; i++) Assert.Equal(weights[i] / total * bounds.Area, rects[i].Area, 3);
+
+        var rows = rects.GroupBy(r => Math.Round(r.Y, 6)).OrderBy(g => g.Key).ToList();
+        Assert.True(rows.Count >= 3);
+        double previous = double.MaxValue;
+        foreach (var row in rows)
+        {
+            Assert.Equal(bounds.W, row.Sum(r => r.W), 6);
+            Assert.All(row, r => Assert.Equal(row.First().H, r.H, 6));
+            Assert.True(row.First().H <= previous + 1e-6, "rows get shorter towards the bottom");
+            Assert.True(row.First().H >= 24 - 1e-6, "every row is tall enough for a label");
+            previous = row.First().H;
+        }
+        Assert.Equal(bounds.Bottom, rects.Max(r => r.Bottom), 6);
+    }
+}
+
+public class FolderGroupsTests
+{
+    private static DiskNode Folder(string name, params DiskNode[] kids)
+    {
+        var d = new DiskNode(name, NodeFlags.Directory);
+        foreach (var k in kids) d.AddChild(k);
+        return d;
+    }
+
+    private static DiskNode File(string name, long size) => new(name, NodeFlags.None) { Size = size, FileCount = 1 };
+
+    [Fact]
+    public void Opens_folders_that_hold_too_much_and_keeps_the_biggest()
+    {
+        // Users/alex holds most of the drive, so it is opened into its subfolders; Windows stays one group.
+        var root = Folder("C:\\",
+            Folder("Users", Folder("alex",
+                Folder("AI", File("model.gguf", 400), File("lora.bin", 50)),
+                Folder("Games", File("game.pak", 300), File("patch.pak", 20)),
+                Folder("Videos", File("a.mkv", 100), File("b.mkv", 60)))),
+            Folder("Windows", File("system.dll", 150), File("drivers.sys", 40)),
+            File("pagefile.sys", 120));
+        ScanPostProcessor.AggregateSubtree(root);
+
+        var groups = FolderGroups.Find(root);
+        Assert.Equal(["AI", "Games", "Windows", "Videos"], groups.Select(g => g.Name));
+        Assert.True(FolderGroups.Find(root, max: 2).Count == 2);
+    }
 }
 
 public class MftRecordTests

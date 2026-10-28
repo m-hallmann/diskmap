@@ -4,6 +4,7 @@ using DiskMap.Core.Actions;
 using DiskMap.Core.Games;
 using DiskMap.Core.Layout;
 using DiskMap.Core.Model;
+using DiskMap.Core.Settings;
 using DiskMap.Services;
 using Microsoft.UI.Text;
 using Microsoft.UI.Xaml;
@@ -97,6 +98,8 @@ public sealed partial class MapPage : Page
         PushSelectionToMap();
         PushGrowthToMap();
         Map.FilterHits = S.FilterHits;
+        Map.ColorByFolder = S.Settings.MapColors == MapColoring.Folder;
+        Map.Tiling = S.Settings.MapTiling;
         if (S.Folder != null && S.Scan != null)
         {
             bool newScan = !ReferenceEquals(_shownRoot, S.Scan.Root);
@@ -128,7 +131,7 @@ public sealed partial class MapPage : Page
         {
             // Zoom from wherever the new folder (or its nearest visible ancestor) sits in the old picture.
             DiskNode? anchor = null;
-            var visible = Map.Boxes.Where(b => b.Node != null).Select(b => b.Node!).ToHashSet(ReferenceEqualityComparer.Instance);
+            var visible = Map.Boxes.SelectMany(b => b.Chain ?? (b.Node != null ? [b.Node] : [])).ToHashSet(ReferenceEqualityComparer.Instance);
             for (var n = folder; n != null && !ReferenceEquals(n, old); n = n.Parent)
             {
                 if (visible.Contains(n)) { anchor = n; break; }
@@ -188,6 +191,11 @@ public sealed partial class MapPage : Page
         Chips.Children.Clear();
         var folder = S.Folder;
         if (folder == null) return;
+        if (S.Settings.MapColors == MapColoring.Folder)
+        {
+            AddFolderChips(folder);
+            return;
+        }
         var totals = TreeOps.CategoryTotals(folder);
         foreach (var c in Categories.All.Where(c => totals[(int)c] > 0).OrderByDescending(c => totals[(int)c]))
         {
@@ -209,6 +217,38 @@ public sealed partial class MapPage : Page
                 var cat = (Category)((FrameworkElement)s).Tag;
                 S.SetFilter(S.Query, S.CategoryFilter == cat ? null : cat);
             };
+            Chips.Children.Add(chip);
+        }
+    }
+
+    /// <summary>When the map is coloured by folder, the chips name the coloured folders; clicking one opens it.</summary>
+    private void AddFolderChips(DiskNode folder)
+    {
+        var groups = FolderGroups.Find(folder);
+        for (int i = 0; i < groups.Count; i++)
+        {
+            var node = groups[i];
+            var content = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7 };
+            content.Children.Add(new Border
+            {
+                Width = 10,
+                Height = 10,
+                CornerRadius = new CornerRadius(3),
+                Background = new SolidColorBrush(MapColors.GroupSwatch(i)),
+                VerticalAlignment = VerticalAlignment.Center,
+            });
+            content.Children.Add(new TextBlock { Text = node.DisplayName });
+            content.Children.Add(Dialogs.SecondaryText(Format.Bytes(node.Size)));
+            var chip = new Button
+            {
+                Content = content,
+                CornerRadius = new CornerRadius(14),
+                Padding = new Thickness(11, 4, 11, 5),
+                FontSize = 12,
+                Tag = node,
+            };
+            ToolTipService.SetToolTip(chip, node.FullPath);
+            chip.Click += (s, _) => S.OpenFolder((DiskNode)((FrameworkElement)s).Tag);
             Chips.Children.Add(chip);
         }
     }
@@ -415,6 +455,21 @@ public sealed partial class MapPage : Page
 
     // ---- Details pane -----------------------------------------------------------------------
 
+    /// <summary>The colour a node has in the map: its folder group's when colouring by folder, else its file type's.</summary>
+    private Brush SwatchBrush(DiskNode node)
+    {
+        if (!Map.ColorByFolder) return Dialogs.CategoryBrush(node.Category);
+        var groups = Map.Groups;
+        for (var n = node; n != null && !ReferenceEquals(n, Map.Folder); n = n.Parent)
+        {
+            for (int i = 0; i < groups.Count; i++)
+            {
+                if (ReferenceEquals(groups[i], n)) return new SolidColorBrush(MapColors.GroupSwatch(i));
+            }
+        }
+        return new SolidColorBrush(MapColors.NeutralSwatch);
+    }
+
     private void UpdateDetails()
     {
         var top = TreeOps.TopLevel(S.Selection);
@@ -431,7 +486,7 @@ public sealed partial class MapPage : Page
         Details.Children.Add(new TextBlock { Text = $"{nodes.Count:N0} items selected", Style = Res<Style>("BodyStrongTextBlockStyle"), FontSize = 18 });
         Details.Children.Add(new TextBlock { Text = Format.Bytes(nodes.Sum(n => n.Size)), Style = Res<Style>("BigNumberStyle") });
         var list = new StackPanel { Spacing = 6 };
-        foreach (var n in nodes.Take(8)) list.Children.Add(Dialogs.ItemRow(n.Category, n.DisplayName, Format.Bytes(n.Size)));
+        foreach (var n in nodes.Take(8)) list.Children.Add(Dialogs.ItemRow(SwatchBrush(n), n.DisplayName, Format.Bytes(n.Size)));
         if (nodes.Count > 8) list.Children.Add(Caption($"and {nodes.Count - 8:N0} more"));
         Details.Children.Add(list);
         var actions = new StackPanel { Spacing = 8, Margin = new Thickness(0, 4, 0, 0) };
@@ -449,7 +504,7 @@ public sealed partial class MapPage : Page
         var head = new Grid { ColumnSpacing = 12 };
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         head.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
-        head.Children.Add(Dialogs.Swatch(node.Category, 32, 6));
+        head.Children.Add(Dialogs.Swatch(SwatchBrush(node), 32, 6));
         var titles = new StackPanel();
         titles.Children.Add(new TextBlock
         {
@@ -518,7 +573,7 @@ public sealed partial class MapPage : Page
             {
                 var b = new Button
                 {
-                    Content = Dialogs.ItemRow(child.Category, child.DisplayName, Format.Bytes(child.Size)),
+                    Content = Dialogs.ItemRow(SwatchBrush(child), child.DisplayName, Format.Bytes(child.Size)),
                     HorizontalAlignment = HorizontalAlignment.Stretch,
                     HorizontalContentAlignment = HorizontalAlignment.Stretch,
                     Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),

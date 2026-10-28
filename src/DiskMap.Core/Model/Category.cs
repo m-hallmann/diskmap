@@ -38,17 +38,20 @@ public static class Categories
         _ => "Other",
     };
 
-    /// <summary>Category colour as 0xRRGGBB. Mid-to-high lightness so dark labels stay readable.</summary>
+    /// <summary>
+    /// Category colour as 0xRRGGBB: the same lightness (OKLCH L 0.76) and similar chroma for every hue, so no
+    /// category shouts louder than another and dark labels stay readable.
+    /// </summary>
     public static uint Rgb(Category c) => c switch
     {
-        Category.Games => 0xF2A541,
-        Category.AiModels => 0xB57BFF,
-        Category.Video => 0xE86A92,
-        Category.Apps => 0x4C9AFF,
-        Category.Caches => 0x3FC1B0,
-        Category.Archives => 0xE07856,
-        Category.Images => 0x9BD15B,
-        Category.Documents => 0xA9B4C2,
+        Category.Games => 0xE4A249,
+        Category.AiModels => 0xC398FF,
+        Category.Video => 0xF28DB4,
+        Category.Apps => 0x77B5FB,
+        Category.Caches => 0x5CC6B9,
+        Category.Archives => 0xF79273,
+        Category.Images => 0x8CC36D,
+        Category.Documents => 0xA3B3C4,
         Category.System => 0x5E6670,
         _ => 0x8A8F98,
     };

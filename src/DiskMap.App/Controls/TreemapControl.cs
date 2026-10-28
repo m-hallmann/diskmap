@@ -32,8 +32,9 @@ public sealed class MapBoxEventArgs(MapBox box, Point position, bool add) : Even
 }
 
 /// <summary>
-/// Draws a folder as nested boxes (area = space used) with Win2D. The finished picture is cached in a
-/// bitmap; hover outlines are drawn on top each frame. Transitions run on the composition clock.
+/// Draws a folder as nested boxes (area = space used) with Win2D. Folders are quiet surfaces with a plain title;
+/// colour belongs to the files, either by the big folder they belong to or by file type. The finished picture is
+/// cached in a bitmap; hover outlines are drawn on top each frame. Transitions run on the composition clock.
 /// </summary>
 public sealed partial class TreemapControl : UserControl
 {
@@ -43,13 +44,16 @@ public sealed partial class TreemapControl : UserControl
     private long _freeBytes;
     private List<MapBox> _boxes = new();
     private MapBox? _hover;
+    private MapLayoutOptions _options = new();
+    private List<DiskNode> _groups = new();
+    private Dictionary<DiskNode, int> _groupIndex = new();
 
     private CanvasRenderTarget? _cache;
     private bool _cacheValid;
     private Palette _pal = Palette.Dark();
-    private CanvasTextFormat? _headFmt, _headSizeFmt, _tileFmt, _tileSizeFmt, _centerFmt, _badgeFmt;
-    private CanvasLinearGradientBrush? _cushion;
-    private CanvasImageBrush? _hatch;
+    private CanvasTextFormat? _headFmt, _headSmallFmt, _sizeFmt, _tileFmt, _tileSizeFmt, _centerFmt, _centerStrongFmt, _pillFmt;
+    private readonly Dictionary<int, CanvasTextFormat> _bigFmts = new();
+    private CanvasImageBrush? _hatchLight, _hatchDark, _dotsLight, _dotsDark;
     private CanvasStrokeStyle? _dash;
 
     // Animation state
@@ -104,6 +108,15 @@ public sealed partial class TreemapControl : UserControl
     /// <summary>Change since the last scan, shown as badges.</summary>
     public IReadOnlyDictionary<DiskNode, long>? Growth { get; set; }
 
+    /// <summary>Colour files by the big folder they belong to, else by file type. Takes effect on the next layout.</summary>
+    public bool ColorByFolder { get; set; } = true;
+
+    /// <summary>How boxes are arranged inside a folder. Takes effect on the next layout.</summary>
+    public MapTiling Tiling { get; set; } = MapTiling.Rows;
+
+    /// <summary>The big folders the shown folder is coloured by, largest first.</summary>
+    public IReadOnlyList<DiskNode> Groups => _groups;
+
     public IReadOnlyList<MapBox> Boxes => _boxes;
 
     public event EventHandler<MapBoxEventArgs>? BoxClicked;
@@ -157,9 +170,15 @@ public sealed partial class TreemapControl : UserControl
 
     private List<MapBox> BuildLayout()
     {
-        if (_folder == null || ActualWidth < 4 || ActualHeight < 4) return new();
+        if (_folder == null) return new();
+        // Groups don't depend on the size, and the details pane reads them even before the map has one.
+        _groups = FolderGroups.Find(_folder);
+        _groupIndex = new Dictionary<DiskNode, int>(ReferenceEqualityComparer.Instance);
+        for (int i = 0; i < _groups.Count; i++) _groupIndex[_groups[i]] = i;
+        if (ActualWidth < 4 || ActualHeight < 4) return new();
         long free = _folder.Parent == null ? _freeBytes : 0;
-        return MapLayout.Build(_folder, new RectD(0, 0, ActualWidth, ActualHeight), free);
+        _options = new MapLayoutOptions { Tiling = Tiling };
+        return MapLayout.Build(_folder, new RectD(0, 0, ActualWidth, ActualHeight), free, _options);
     }
 
     private void BeginTransition(MapTransition transition, List<MapBox> oldBoxes, DiskNode? oldFolder, DiskNode? zoomNode)
@@ -227,7 +246,7 @@ public sealed partial class TreemapControl : UserControl
     {
         foreach (var b in boxes)
         {
-            if (ReferenceEquals(b.Node, node)) return b.Rect;
+            if (b.Shows(node)) return b.Rect;
         }
         return null;
     }
@@ -301,39 +320,51 @@ public sealed partial class TreemapControl : UserControl
 
     private void OnCreateResources(CanvasControl sender, CanvasCreateResourcesEventArgs args)
     {
-        _cushion = new CanvasLinearGradientBrush(sender,
-        [
-            new CanvasGradientStop { Position = 0f, Color = Color.FromArgb(82, 255, 255, 255) },
-            new CanvasGradientStop { Position = 0.45f, Color = Color.FromArgb(0, 255, 255, 255) },
-            new CanvasGradientStop { Position = 1f, Color = Color.FromArgb(46, 0, 0, 0) },
-        ]);
-        var hatch = new CanvasRenderTarget(sender, 8, 8);
-        using (var ds = hatch.CreateDrawingSession())
+        _hatchLight = Pattern(sender, 6, Color.FromArgb(20, 255, 255, 255), (ds, c) =>
         {
-            ds.Clear(Color.FromArgb(0, 0, 0, 0));
-            var line = Color.FromArgb(34, 255, 255, 255);
-            ds.DrawLine(-2, 10, 10, -2, line, 2.5f);
-            ds.DrawLine(-2, 2, 2, -2, line, 2.5f);
-            ds.DrawLine(6, 10, 10, 6, line, 2.5f);
-        }
-        _hatch = new CanvasImageBrush(sender, hatch) { ExtendX = CanvasEdgeBehavior.Wrap, ExtendY = CanvasEdgeBehavior.Wrap };
+            ds.DrawLine(-1, 7, 7, -1, c, 1f);
+            ds.DrawLine(-1, 1, 1, -1, c, 1f);
+            ds.DrawLine(5, 7, 7, 5, c, 1f);
+        });
+        _hatchDark = Pattern(sender, 6, Color.FromArgb(20, 0, 0, 0), (ds, c) =>
+        {
+            ds.DrawLine(-1, 7, 7, -1, c, 1f);
+            ds.DrawLine(-1, 1, 1, -1, c, 1f);
+            ds.DrawLine(5, 7, 7, 5, c, 1f);
+        });
+        _dotsLight = Pattern(sender, 5, Color.FromArgb(41, 255, 255, 255), (ds, c) => ds.FillCircle(2.5f, 2.5f, 0.9f, c));
+        _dotsDark = Pattern(sender, 5, Color.FromArgb(41, 0, 0, 0), (ds, c) => ds.FillCircle(2.5f, 2.5f, 0.9f, c));
         _dash = new CanvasStrokeStyle { DashStyle = CanvasDashStyle.Dash };
 
-        _headFmt = Fmt(11, Microsoft.UI.Text.FontWeights.SemiBold, CanvasHorizontalAlignment.Left);
-        _headSizeFmt = Fmt(11, Microsoft.UI.Text.FontWeights.Normal, CanvasHorizontalAlignment.Right);
-        _tileFmt = Fmt(11, Microsoft.UI.Text.FontWeights.SemiBold, CanvasHorizontalAlignment.Left);
-        _tileSizeFmt = Fmt(11, Microsoft.UI.Text.FontWeights.Normal, CanvasHorizontalAlignment.Left);
+        _headFmt = Fmt(12.5f, Microsoft.UI.Text.FontWeights.SemiBold);
+        _headSmallFmt = Fmt(12, Microsoft.UI.Text.FontWeights.SemiBold);
+        _sizeFmt = Fmt(11.5f, Microsoft.UI.Text.FontWeights.Normal);
+        _tileFmt = Fmt(12, Microsoft.UI.Text.FontWeights.SemiBold);
+        _tileSizeFmt = Fmt(11.5f, Microsoft.UI.Text.FontWeights.Normal);
         _centerFmt = Fmt(12, Microsoft.UI.Text.FontWeights.Normal, CanvasHorizontalAlignment.Center);
-        _centerFmt.WordWrapping = CanvasWordWrapping.Wrap;
-        _badgeFmt = Fmt(10, Microsoft.UI.Text.FontWeights.Bold, CanvasHorizontalAlignment.Center);
+        _centerStrongFmt = Fmt(12, Microsoft.UI.Text.FontWeights.SemiBold, CanvasHorizontalAlignment.Center);
+        _pillFmt = Fmt(11, Microsoft.UI.Text.FontWeights.SemiBold, CanvasHorizontalAlignment.Center);
+        _bigFmts.Clear();
         _cache?.Dispose();
         _cache = null;
         _cacheValid = false;
     }
 
-    private static CanvasTextFormat Fmt(float size, Windows.UI.Text.FontWeight weight, CanvasHorizontalAlignment align) => new()
+    private static CanvasImageBrush Pattern(CanvasControl sender, int size, Color color, Action<CanvasDrawingSession, Color> draw)
     {
-        FontFamily = "Segoe UI Variable Text",
+        var tile = new CanvasRenderTarget(sender, size, size);
+        using (var ds = tile.CreateDrawingSession())
+        {
+            ds.Clear(Color.FromArgb(0, 0, 0, 0));
+            draw(ds, color);
+        }
+        return new CanvasImageBrush(sender, tile) { ExtendX = CanvasEdgeBehavior.Wrap, ExtendY = CanvasEdgeBehavior.Wrap };
+    }
+
+    private static CanvasTextFormat Fmt(float size, Windows.UI.Text.FontWeight weight,
+        CanvasHorizontalAlignment align = CanvasHorizontalAlignment.Left, string family = "Segoe UI Variable Text") => new()
+    {
+        FontFamily = family,
         FontSize = size,
         FontWeight = weight,
         HorizontalAlignment = align,
@@ -342,6 +373,17 @@ public sealed partial class TreemapControl : UserControl
         TrimmingGranularity = CanvasTextTrimmingGranularity.Character,
         TrimmingSign = CanvasTrimmingSign.Ellipsis,
     };
+
+    /// <summary>Large light figures for the size of big boxes.</summary>
+    private CanvasTextFormat BigFmt(int size)
+    {
+        if (!_bigFmts.TryGetValue(size, out var fmt))
+        {
+            fmt = Fmt(size, Microsoft.UI.Text.FontWeights.SemiLight, family: "Segoe UI Variable Display");
+            _bigFmts[size] = fmt;
+        }
+        return fmt;
+    }
 
     private void UpdatePalette()
     {
@@ -370,7 +412,7 @@ public sealed partial class TreemapControl : UserControl
             ds.Clear(Color.FromArgb(0, 0, 0, 0));
             DrawBackground(ds, size);
             DrawBoxes(ds, _boxes, null, labels: true);
-            DrawSelection(ds, _boxes, null);
+            DrawSelection(ds, _boxes);
         }
         _cacheValid = true;
     }
@@ -379,7 +421,7 @@ public sealed partial class TreemapControl : UserControl
 
     private void PrepareMorphEnd()
     {
-        if (ActualWidth < 4 || _cushion == null)
+        if (ActualWidth < 4 || _hatchLight == null)
         {
             _cacheValid = false;
             return;
@@ -400,7 +442,7 @@ public sealed partial class TreemapControl : UserControl
 
     private void OnDraw(CanvasControl sender, CanvasDrawEventArgs args)
     {
-        if (_cushion == null) return;
+        if (_hatchLight == null) return;
         if (!LogFrames || _anim == Anim.None)
         {
             Draw(args.DrawingSession);
@@ -494,7 +536,9 @@ public sealed partial class TreemapControl : UserControl
 
     private void DrawBackground(CanvasDrawingSession ds, Size size)
     {
-        ds.FillRoundedRectangle(new Rect(0, 0, size.Width, size.Height), 8, 8, _pal.Background);
+        var r = new Rect(0, 0, size.Width, size.Height);
+        ds.FillRoundedRectangle(r, 10, 10, _pal.Background);
+        if (!_pal.IsDark) ds.DrawRoundedRectangle(new Rect(0.5, 0.5, Math.Max(0, size.Width - 1), Math.Max(0, size.Height - 1)), 10, 10, _pal.Edge, 1f);
     }
 
     private void DrawBoxes(CanvasDrawingSession ds, List<MapBox> boxes, Func<MapBox, (RectD Rect, float Alpha)>? animate, bool labels)
@@ -509,121 +553,249 @@ public sealed partial class TreemapControl : UserControl
 
     private bool IsDimmed(MapBox box) => FilterHits != null && (box.Node == null || !FilterHits.Contains(box.Node));
 
+    private bool IsSelected(MapBox box) =>
+        Selection != null && (box.Node != null && Selection.Contains(box.Node) || (box.Chain?.Any(Selection.Contains) ?? false));
+
     private void DrawBox(CanvasDrawingSession ds, MapBox box, RectD r, float alpha, bool labels)
     {
         if (IsDimmed(box)) alpha *= 0.2f;
-        var rr = new Rect(r.X + 0.5, r.Y + 0.5, Math.Max(0, r.W - 1), Math.Max(0, r.H - 1));
         switch (box.Kind)
         {
-            case BoxKind.Frame:
-            {
-                var node = box.Node!;
-                var c = CategoryColor(node.Category);
-                ds.FillRoundedRectangle(rr, 4, 4, WithAlpha(c, 0.10f * alpha));
-                ds.DrawRoundedRectangle(rr, 4, 4, WithAlpha(_pal.FrameStroke, alpha), 1f, node.IsProtected ? _dash : null);
-                var head = new Rect(rr.X + 1, rr.Y + 1, Math.Max(0, rr.Width - 2), Math.Min(16, Math.Max(0, rr.Height - 2)));
-                ds.FillRoundedRectangle(head, 3, 3, WithAlpha(c, 0.36f * alpha));
-                if (labels && head.Width >= 28)
-                {
-                    double sizeW = head.Width >= 110 ? 64 : 0;
-                    double badgeW = 0;
-                    if (Growth != null && head.Width >= 170 && Growth.TryGetValue(node, out var delta))
-                    {
-                        badgeW = DrawBadge(ds, head.Right - sizeW - 6, head.Y + 1, delta, alpha, rightAligned: true) + 6;
-                    }
-                    ds.DrawText(node.DisplayName, new Rect(head.X + 5, head.Y, Math.Max(0, head.Width - 10 - sizeW - badgeW), head.Height),
-                        WithAlpha(_pal.Text, alpha), _headFmt);
-                    if (sizeW > 0)
-                    {
-                        ds.DrawText(Format.Bytes(node.Size), new Rect(head.X + 5, head.Y, head.Width - 11, head.Height),
-                            WithAlpha(_pal.TextSecondary, alpha), _headSizeFmt);
-                    }
-                }
-                break;
-            }
-            case BoxKind.Tile:
-            {
-                var node = box.Node!;
-                var c = CategoryColor(node.Category);
-                float radius = (float)Math.Min(3, Math.Min(rr.Width, rr.Height) / 4);
-                ds.FillRoundedRectangle(rr, radius, radius, WithAlpha(c, alpha));
-                if (rr.Width * rr.Height >= 64)
-                {
-                    _cushion!.StartPoint = new Vector2((float)rr.X, (float)rr.Y);
-                    _cushion.EndPoint = new Vector2((float)(rr.X + rr.Width * 0.9), (float)(rr.Y + rr.Height));
-                    _cushion.Opacity = alpha;
-                    ds.FillRoundedRectangle(rr, radius, radius, _cushion);
-                }
-                if (node.IsProtected && rr.Width * rr.Height >= 64)
-                {
-                    _hatch!.Opacity = alpha;
-                    ds.FillRoundedRectangle(rr, radius, radius, _hatch);
-                }
-                if (labels && rr.Width >= 40 && rr.Height >= 18)
-                {
-                    var ink = WithAlpha(Categories.NeedsLightText(node.Category) ? Color.FromArgb(255, 255, 255, 255) : Color.FromArgb(255, 20, 20, 20), alpha);
-                    ds.DrawText(node.DisplayName, new Rect(rr.X + 5, rr.Y + 2, rr.Width - 10, 14), ink, _tileFmt);
-                    if (rr.Height >= 32)
-                    {
-                        ds.DrawText(Format.Bytes(node.Size), new Rect(rr.X + 5, rr.Y + 16, rr.Width - 10, 14), WithAlpha(ink, 0.82f * alpha), _tileSizeFmt);
-                    }
-                    if (Growth != null && rr.Width >= 64 && rr.Height >= 52 && Growth.TryGetValue(node, out var delta))
-                    {
-                        DrawBadge(ds, rr.X + 4, rr.Bottom - 18, delta, alpha, rightAligned: false);
-                    }
-                }
-                break;
-            }
-            case BoxKind.Free:
-            {
-                ds.DrawRoundedRectangle(rr, 4, 4, WithAlpha(_pal.TextTertiary, alpha), 1f, _dash);
-                if (labels && rr.Width >= 60 && rr.Height >= 34)
-                {
-                    ds.DrawText($"Free space\n{Format.Bytes(box.Size)}", rr, WithAlpha(_pal.TextSecondary, alpha), _centerFmt);
-                }
-                break;
-            }
-            case BoxKind.Rest:
-            {
-                float radius = (float)Math.Min(3, Math.Min(rr.Width, rr.Height) / 4);
-                ds.FillRoundedRectangle(rr, radius, radius, WithAlpha(_pal.Rest, alpha));
-                if (labels && rr.Width >= 70 && rr.Height >= 30)
-                {
-                    ds.DrawText($"{box.RestCount:N0} small items\n{Format.Bytes(box.Size)}", rr, WithAlpha(_pal.TextSecondary, alpha), _centerFmt);
-                }
-                break;
-            }
+            case BoxKind.Frame: DrawFrame(ds, box, r, alpha, labels); break;
+            case BoxKind.Tile: DrawTile(ds, box, r, alpha, labels); break;
+            case BoxKind.Free: DrawFree(ds, box, r, alpha, labels); break;
+            case BoxKind.Rest: DrawRest(ds, box, r, alpha, labels); break;
         }
     }
 
-    private float DrawBadge(CanvasDrawingSession ds, double x, double y, long delta, float alpha, bool rightAligned)
+    /// <summary>A folder: a faint surface with a hairline edge and a plain title, no coloured bar.</summary>
+    private void DrawFrame(CanvasDrawingSession ds, MapBox box, RectD r, float alpha, bool labels)
     {
-        var text = Format.Delta(delta);
-        float w = 10 + text.Length * 5.6f;
-        var r = new Rect(rightAligned ? x - w : x, y, w, 14);
-        ds.FillRoundedRectangle(r, 7, 7, WithAlpha(delta >= 0 ? _pal.Caution : _pal.Success, alpha));
-        ds.DrawText(text, r, WithAlpha(_pal.OnSeverity, alpha), _badgeFmt);
-        return w;
+        var node = box.Node!;
+        int group = GroupOf(node);
+        float radius = FrameRadius(box.Depth);
+        var rr = new Rect(r.X + 0.5, r.Y + 0.5, Math.Max(0, r.W - 1), Math.Max(0, r.H - 1));
+        ds.FillRoundedRectangle(rr, radius, radius, WithAlpha(group >= 0 ? MapColors.GroupWash(group, _pal.IsDark) : _pal.Surface, alpha));
+        ds.DrawRoundedRectangle(rr, radius, radius, WithAlpha(group >= 0 ? MapColors.GroupEdge(group, _pal.IsDark) : _pal.Edge, alpha), 1f,
+            node.IsProtected ? _dash : null);
+        if (!labels || r.W < 28) return;
+
+        double head = _options.HeaderHeight(box.Depth), pad = _options.Padding(box.Depth);
+        float cy = (float)(r.Y + head / 2);
+        double x = r.X + pad + 3, right = r.Right - pad - 4;
+        // The check mark leads the title, so nothing else in it moves when the folder is selected.
+        if (IsSelected(box))
+        {
+            DrawCheck(ds, new Vector2((float)(x + 7), cy), alpha);
+            x += 20;
+        }
+        if (group >= 0 && _groupIndex.ContainsKey(node))
+        {
+            ds.FillCircle((float)(x + 4), cy, 4, WithAlpha(MapColors.GroupDot(group, _pal.IsDark), alpha));
+            x += 14;
+        }
+        if (r.W >= 120)
+        {
+            string size = Format.Bytes(box.Size);
+            float width = Measure(ds, size, _sizeFmt!);
+            ds.DrawText(size, new Rect(right - width, r.Y, width + 2, head), WithAlpha(_pal.TextTertiary, alpha), _sizeFmt);
+            right -= width + 6;
+        }
+
+        string prefix = box.Chain is { Count: > 1 } chain ? string.Join(" / ", chain.Take(chain.Count - 1).Select(n => n.DisplayName)) + " / " : "";
+        var fmt = box.Depth < 2 ? _headFmt! : _headSmallFmt!;
+        if (DeltaOf(box) is { } delta)
+        {
+            // The name wins: the change shows as a pill when there is room, otherwise as a dot.
+            string text = Format.Delta(delta);
+            float pill = Measure(ds, text, _pillFmt!) + 12;
+            if (right - x >= Measure(ds, prefix + node.DisplayName, fmt) + pill + 6)
+            {
+                DrawPill(ds, right - pill, cy, text, delta, alpha, onTile: false);
+                right -= pill + 6;
+            }
+            else if (right - x >= 40)
+            {
+                DrawGrowthDot(ds, (float)(right - 4), cy, delta, alpha, ring: false);
+                right -= 13;
+            }
+        }
+        DrawTitle(ds, prefix, node.DisplayName, x, r.Y, right - x, head, fmt, alpha);
     }
 
-    private void DrawSelection(CanvasDrawingSession ds, List<MapBox> boxes, Func<MapBox, RectD>? rects)
+    private void DrawTitle(CanvasDrawingSession ds, string prefix, string name, double x, double y, double width, double height,
+        CanvasTextFormat fmt, float alpha)
+    {
+        if (width < 12) return;
+        using var layout = new CanvasTextLayout(ds, prefix + name, fmt, (float)width, (float)height);
+        if (prefix.Length > 0) layout.SetColor(0, prefix.Length, WithAlpha(_pal.TextTertiary, alpha));
+        ds.DrawTextLayout(layout, (float)x, (float)y, WithAlpha(_pal.Text, alpha));
+    }
+
+    /// <summary>A file (or a folder too small to open): flat colour, its name, and its size as a large figure when there is room.</summary>
+    private void DrawTile(CanvasDrawingSession ds, MapBox box, RectD r, float alpha, bool labels)
+    {
+        var node = box.Node!;
+        var (fill, darkInk) = TileColor(box);
+        float radius = (float)Math.Min(5, Math.Min(r.W, r.H) / 4);
+        var rect = new Rect(r.X, r.Y, r.W, r.H);
+        ds.FillRoundedRectangle(rect, radius, radius, WithAlpha(fill, alpha));
+        if (_pal.IsDark)
+        {
+            if (r.W > 2 * radius + 2) ds.DrawLine((float)(r.X + radius), (float)r.Y + 0.5f, (float)(r.Right - radius), (float)r.Y + 0.5f, WithAlpha(_pal.TopLight, alpha), 1f);
+        }
+        else if (r.W >= 4 && r.H >= 4)
+        {
+            ds.DrawRoundedRectangle(new Rect(r.X + 0.5, r.Y + 0.5, r.W - 1, r.H - 1), radius, radius, WithAlpha(_pal.TopLight, alpha), 1f);
+        }
+        if (node.IsProtected && r.W * r.H >= 64)
+        {
+            var hatch = darkInk ? _hatchDark! : _hatchLight!;
+            hatch.Opacity = alpha;
+            ds.FillRoundedRectangle(rect, radius, radius, hatch);
+        }
+        if (!labels) return;
+
+        long? delta = Growth != null && Growth.TryGetValue(node, out var d) ? d : null;
+        if (r.W < 44 || r.H < 22)
+        {
+            if (delta is { } small && r.W >= 18 && r.H >= 18) DrawGrowthDot(ds, (float)(r.Right - 7), (float)(r.Y + 7), small, alpha, ring: true);
+            return;
+        }
+
+        var ink = darkInk ? Color.FromArgb(214, 0, 0, 0) : Color.FromArgb(240, 255, 255, 255);
+        double x = r.X + 7, y = r.Y + 5;
+        if (IsSelected(box))
+        {
+            DrawCheck(ds, new Vector2((float)(x + 7), (float)(y + 8)), alpha);
+            x += 20;
+        }
+        ds.DrawText(node.DisplayName, new Rect(x, y, Math.Max(0, r.Right - 7 - x), 16), WithAlpha(ink, alpha), _tileFmt);
+
+        string size = Format.Bytes(node.Size);
+        if (r.W >= 96 && r.H >= 80)
+        {
+            // Big boxes show their size as a large light figure: the eye finds the heavy items first.
+            var fmt = BigFmt(BigFigureSize(r));
+            int px = (int)fmt.FontSize;
+            float lineH = px * 1.25f;
+            double top = r.Bottom - 5 - lineH;
+            ds.DrawText(size, new Rect(r.X + 7, top, r.W - 14, lineH), WithAlpha(ink, alpha * 0.92f), fmt);
+            if (delta is { } big)
+            {
+                float width = Measure(ds, size, fmt), pill = Measure(ds, Format.Delta(big), _pillFmt!) + 12;
+                if (7 + width + 6 + pill <= r.W - 7) DrawPill(ds, r.X + 7 + width + 6, (float)(top + lineH / 2), Format.Delta(big), big, alpha, onTile: true);
+                else if (top - 20 > y + 16) DrawPill(ds, r.X + 7, (float)(top - 10), Format.Delta(big), big, alpha, onTile: true);
+                else DrawGrowthDot(ds, (float)(r.Right - 7), (float)(r.Y + 7), big, alpha, ring: true);
+            }
+        }
+        else if (r.H >= 40)
+        {
+            ds.DrawText(size, new Rect(r.X + 7, y + 17, Math.Max(0, r.W - 14), 16), WithAlpha(ink, alpha * 0.68f), _tileSizeFmt);
+            if (delta is { } mid)
+            {
+                float width = Measure(ds, size, _tileSizeFmt!), pill = Measure(ds, Format.Delta(mid), _pillFmt!) + 12;
+                if (7 + width + 6 + pill <= r.W - 7) DrawPill(ds, r.X + 7 + width + 6, (float)(y + 25), Format.Delta(mid), mid, alpha, onTile: true);
+                else DrawGrowthDot(ds, (float)(r.Right - 7), (float)(r.Y + 7), mid, alpha, ring: true);
+            }
+        }
+        else if (delta is { } low)
+        {
+            DrawGrowthDot(ds, (float)(r.Right - 7), (float)(r.Y + 7), low, alpha, ring: true);
+        }
+    }
+
+    private void DrawFree(CanvasDrawingSession ds, MapBox box, RectD r, float alpha, bool labels)
+    {
+        var rr = new Rect(r.X + 0.5, r.Y + 0.5, Math.Max(0, r.W - 1), Math.Max(0, r.H - 1));
+        ds.DrawRoundedRectangle(rr, 6, 6, WithAlpha(_pal.TextTertiary, alpha), 1f, _dash);
+        if (!labels) return;
+        string size = Format.Bytes(box.Size);
+        if (r.W >= 96 && r.H >= 80)
+        {
+            // Laid out like a big file: name at the top, size as a large figure at the bottom.
+            ds.DrawText("Free space", new Rect(r.X + 8, r.Y + 6, r.W - 16, 16), WithAlpha(_pal.TextSecondary, alpha), _tileFmt);
+            int px = BigFigureSize(r);
+            float lineH = px * 1.25f;
+            ds.DrawText(size, new Rect(r.X + 8, r.Bottom - 6 - lineH, r.W - 16, lineH), WithAlpha(_pal.TextSecondary, alpha), BigFmt(px));
+        }
+        else if (r.W >= 60 && r.H >= 34)
+        {
+            DrawCentered(ds, r, "Free space", size, alpha);
+        }
+    }
+
+    private static int BigFigureSize(RectD r) => (int)Math.Round(Math.Min(34, Math.Min((r.W - 14) / 4.2, Math.Max(20, Math.Sqrt(r.W * r.H) / 7.5))));
+
+    /// <summary>Many small items: a soft dotted box, so a long tail of little files reads as one calm area.</summary>
+    private void DrawRest(CanvasDrawingSession ds, MapBox box, RectD r, float alpha, bool labels)
+    {
+        float radius = (float)Math.Min(4, Math.Min(r.W, r.H) / 4);
+        var rect = new Rect(r.X, r.Y, r.W, r.H);
+        ds.FillRoundedRectangle(rect, radius, radius, WithAlpha(_pal.Rest, alpha));
+        if (r.W * r.H >= 64)
+        {
+            var dots = _pal.IsDark ? _dotsLight! : _dotsDark!;
+            dots.Opacity = alpha;
+            ds.FillRoundedRectangle(rect, radius, radius, dots);
+        }
+        if (labels && r.W >= 70 && r.H >= 30)
+        {
+            DrawCentered(ds, r, $"{box.RestCount:N0} small item{(box.RestCount == 1 ? "" : "s")}", Format.Bytes(box.Size), alpha);
+        }
+    }
+
+    private void DrawCentered(CanvasDrawingSession ds, RectD r, string title, string detail, float alpha)
+    {
+        double cy = r.Y + r.H / 2;
+        ds.DrawText(title, new Rect(r.X + 4, cy - 17, Math.Max(0, r.W - 8), 16), WithAlpha(_pal.TextSecondary, alpha), _centerStrongFmt);
+        ds.DrawText(detail, new Rect(r.X + 4, cy + 1, Math.Max(0, r.W - 8), 16), WithAlpha(_pal.TextTertiary, alpha), _centerFmt);
+    }
+
+    private void DrawPill(CanvasDrawingSession ds, double x, float cy, string text, long delta, float alpha, bool onTile)
+    {
+        float width = Measure(ds, text, _pillFmt!) + 12;
+        var r = new Rect(x, cy - 8, width, 16);
+        var back = onTile ? _pal.PillBack : delta >= 0 ? _pal.UpWash : _pal.DownWash;
+        ds.FillRoundedRectangle(r, 5, 5, WithAlpha(back, alpha));
+        ds.DrawText(text, r, WithAlpha(delta >= 0 ? _pal.Up : _pal.Down, alpha), _pillFmt);
+    }
+
+    /// <param name="ring">On a coloured tile: a ring in the map's background colour keeps the dot visible on any hue.</param>
+    private void DrawGrowthDot(CanvasDrawingSession ds, float x, float y, long delta, float alpha, bool ring)
+    {
+        if (ring) ds.FillCircle(x, y, 5.5f, WithAlpha(_pal.Background, alpha));
+        ds.FillCircle(x, y, 3.5f, WithAlpha(delta >= 0 ? _pal.Up : _pal.Down, alpha));
+    }
+
+    private void DrawCheck(CanvasDrawingSession ds, Vector2 c, float alpha)
+    {
+        ds.FillCircle(c, 7, WithAlpha(_pal.Accent, alpha));
+        var ink = WithAlpha(_pal.OnAccent, alpha);
+        ds.DrawLine(c + new Vector2(-3.2f, 0.2f), c + new Vector2(-0.8f, 2.6f), ink, 1.6f);
+        ds.DrawLine(c + new Vector2(-0.8f, 2.6f), c + new Vector2(3.4f, -2.4f), ink, 1.6f);
+    }
+
+    private static float Measure(ICanvasResourceCreator rc, string text, CanvasTextFormat fmt)
+    {
+        using var layout = new CanvasTextLayout(rc, text, fmt, 10_000, 100);
+        return (float)layout.LayoutBounds.Width;
+    }
+
+    private void DrawSelection(CanvasDrawingSession ds, List<MapBox> boxes)
     {
         foreach (var box in boxes)
         {
-            if (box.Node == null) continue;
-            bool selected = Selection?.Contains(box.Node) == true;
-            bool focused = ReferenceEquals(FocusNode, box.Node);
+            bool selected = IsSelected(box);
+            bool focused = FocusNode != null && box.Shows(FocusNode);
             if (!selected && !focused) continue;
-            var r = rects?.Invoke(box) ?? box.Rect;
-            var rr = new Rect(r.X + 1.5, r.Y + 1.5, Math.Max(0, r.W - 3), Math.Max(0, r.H - 3));
-            ds.DrawRoundedRectangle(rr, 3, 3, selected ? _pal.Accent : _pal.Text, 2f);
-            if (selected && rr.Width >= 24 && rr.Height >= 24)
-            {
-                var c = new Vector2((float)(rr.Right - 10), (float)(rr.Y + (box.Kind == BoxKind.Frame ? 8 : 10)));
-                ds.FillCircle(c, 7, _pal.Accent);
-                ds.DrawLine(c + new Vector2(-3.2f, 0.2f), c + new Vector2(-0.8f, 2.6f), _pal.OnAccent, 1.6f);
-                ds.DrawLine(c + new Vector2(-0.8f, 2.6f), c + new Vector2(3.4f, -2.4f), _pal.OnAccent, 1.6f);
-            }
+            var r = box.Rect;
+            float radius = RadiusOf(box, r);
+            var rr = new Rect(r.X + 1, r.Y + 1, Math.Max(0, r.W - 2), Math.Max(0, r.H - 2));
+            ds.DrawRoundedRectangle(rr, radius, radius, selected ? _pal.Accent : _pal.Text, 2f);
+            // Frames and labelled tiles carry the check mark before their name; small boxes get it in the corner.
+            bool leading = box.Kind == BoxKind.Frame && r.W >= 28 || box.Kind == BoxKind.Tile && r.W >= 44 && r.H >= 22;
+            if (selected && !leading && r.W >= 24 && r.H >= 24) DrawCheck(ds, new Vector2((float)(r.Right - 10), (float)(r.Y + 10)), 1f);
         }
     }
 
@@ -633,16 +805,54 @@ public sealed partial class TreemapControl : UserControl
         for (var p = _hover.Parent; p != null; p = p.Parent)
         {
             var pr = p.Rect;
-            ds.DrawRoundedRectangle(new Rect(pr.X + 0.5, pr.Y + 0.5, pr.W - 1, pr.H - 1), 4, 4, WithAlpha(_pal.TextSecondary, 0.55f), 1f);
+            float pRadius = RadiusOf(p, pr);
+            ds.DrawRoundedRectangle(new Rect(pr.X + 0.5, pr.Y + 0.5, pr.W - 1, pr.H - 1), pRadius, pRadius, _pal.TextTertiary, 1f);
         }
         var r = _hover.Rect;
-        ds.DrawRoundedRectangle(new Rect(r.X + 0.5, r.Y + 0.5, Math.Max(0, r.W - 1), Math.Max(0, r.H - 1)), 3, 3, _pal.Text, 1.5f);
+        float radius = RadiusOf(_hover, r);
+        if (_hover.Kind != BoxKind.Frame) ds.FillRoundedRectangle(new Rect(r.X, r.Y, r.W, r.H), radius, radius, _pal.HoverWash);
+        ds.DrawRoundedRectangle(new Rect(r.X + 0.75, r.Y + 0.75, Math.Max(0, r.W - 1.5), Math.Max(0, r.H - 1.5)), radius, radius, _pal.Text, 1.5f);
     }
 
-    private static Color CategoryColor(Category c)
+    private static float FrameRadius(int depth) => depth switch { 0 => 9, 1 => 7, 2 => 5, _ => 4 };
+
+    private static float RadiusOf(MapBox box, RectD r) => box.Kind switch
     {
-        uint rgb = Categories.Rgb(c);
-        return Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+        BoxKind.Frame => FrameRadius(box.Depth),
+        BoxKind.Free => 6,
+        BoxKind.Rest => (float)Math.Min(4, Math.Min(r.W, r.H) / 4),
+        _ => (float)Math.Min(5, Math.Min(r.W, r.H) / 4),
+    };
+
+    /// <summary>Index of the folder group a node belongs to, or -1 (also when colouring by file type).</summary>
+    private int GroupOf(DiskNode? node)
+    {
+        if (!ColorByFolder) return -1;
+        for (var n = node; n != null && !ReferenceEquals(n, _folder); n = n.Parent)
+        {
+            if (_groupIndex.TryGetValue(n, out int i)) return i;
+        }
+        return -1;
+    }
+
+    private (Color Fill, bool DarkInk) TileColor(MapBox box)
+    {
+        if (!ColorByFolder) return MapColors.ForCategory(box.Node!.Category, box.Rank, _pal.IsDark);
+        int group = GroupOf(box.Node);
+        return group >= 0 ? MapColors.Group(group, box.Rank, _pal.IsDark) : MapColors.Neutral(box.Rank, _pal.IsDark);
+    }
+
+    /// <summary>Change since the last scan for a box, looking through a merged title from the inside out.</summary>
+    private long? DeltaOf(MapBox box)
+    {
+        if (Growth == null || box.Node == null) return null;
+        if (Growth.TryGetValue(box.Node, out var delta)) return delta;
+        if (box.Chain == null) return null;
+        for (int i = box.Chain.Count - 2; i >= 0; i--)
+        {
+            if (Growth.TryGetValue(box.Chain[i], out delta)) return delta;
+        }
+        return null;
     }
 
     private static Color WithAlpha(Color c, float alpha) => Color.FromArgb((byte)Math.Clamp(c.A * alpha, 0, 255), c.R, c.G, c.B);
@@ -689,8 +899,9 @@ public sealed partial class TreemapControl : UserControl
         if (box != null) BoxRightClicked?.Invoke(this, new MapBoxEventArgs(box, p, false));
     }
 
-    private readonly record struct Palette(Color Background, Color FrameStroke, Color Text, Color TextSecondary, Color TextTertiary,
-        Color Rest, Color Accent, Color OnAccent, Color Caution, Color Success, Color OnSeverity)
+    private readonly record struct Palette(bool IsDark, Color Background, Color Surface, Color Edge, Color TopLight, Color Text,
+        Color TextSecondary, Color TextTertiary, Color Rest, Color HoverWash, Color Accent, Color OnAccent,
+        Color Up, Color UpWash, Color Down, Color DownWash, Color PillBack)
     {
         private static Color Hex(uint rgb, byte a = 255) => Color.FromArgb(a, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
 
@@ -700,11 +911,13 @@ public sealed partial class TreemapControl : UserControl
             catch (Exception) { return Hex(fallback); }
         }
 
-        public static Palette Dark() => new(Hex(0x1A1A1A), Hex(0xFFFFFF, 26), Hex(0xFFFFFF), Hex(0xC5C5C5), Hex(0x8F8F8F),
-            Hex(0xFFFFFF, 30), SystemAccent(UIColorType.AccentLight2, 0x60CDFF), Hex(0x000000), Hex(0xFCE100), Hex(0x6CCB5F), Hex(0x000000));
+        public static Palette Dark() => new(true, Hex(0x1A1A1A), Hex(0xFFFFFF, 9), Hex(0xFFFFFF, 19), Hex(0xFFFFFF, 41), Hex(0xFFFFFF, 235),
+            Hex(0xFFFFFF, 163), Hex(0xFFFFFF, 117), Hex(0xFFFFFF, 13), Hex(0xFFFFFF, 20), SystemAccent(UIColorType.AccentLight2, 0x60CDFF), Hex(0x000000),
+            Hex(0xF5D35B), Hex(0xF5D35B, 36), Hex(0x80D676), Hex(0x80D676, 36), Hex(0x181818, 209));
 
-        public static Palette Light() => new(Hex(0xEBEBEB), Hex(0x000000, 34), Hex(0x1A1A1A), Hex(0x5D5D5D), Hex(0x8A8A8A),
-            Hex(0x000000, 26), SystemAccent(UIColorType.AccentDark1, 0x005FB8), Hex(0xFFFFFF), Hex(0x9D5D00), Hex(0x0F7B0F), Hex(0xFFFFFF));
+        public static Palette Light() => new(false, Hex(0xFFFFFF), Hex(0x000000, 8), Hex(0x000000, 20), Hex(0x000000, 13), Hex(0x000000, 227),
+            Hex(0x000000, 158), Hex(0x000000, 138), Hex(0x000000, 10), Hex(0xFFFFFF, 56), SystemAccent(UIColorType.AccentDark1, 0x005FB8), Hex(0xFFFFFF),
+            Hex(0x8A5100), Hex(0x9D5D00, 28), Hex(0x0E6E0E), Hex(0x0F7B0F, 26), Hex(0xFFFFFF, 235));
     }
 }
 
