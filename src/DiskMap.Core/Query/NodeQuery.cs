@@ -43,12 +43,13 @@ public sealed partial class NodeQuery
             else if (AgeTerm().Match(t) is { Success: true } a)
             {
                 int amount = int.Parse(a.Groups[2].Value, CultureInfo.InvariantCulture);
+                var now = DateTime.UtcNow;
                 var cutoff = a.Groups[3].Value switch
                 {
-                    "d" => DateTime.Now.AddDays(-amount),
-                    "w" => DateTime.Now.AddDays(-7 * amount),
-                    "m" => DateTime.Now.AddMonths(-amount),
-                    _ => DateTime.Now.AddYears(-amount),
+                    "d" => now.AddDays(-amount),
+                    "w" => now.AddDays(-7 * amount),
+                    "m" => now.AddMonths(-amount),
+                    _ => now.AddYears(-amount),
                 };
                 bool older = a.Groups[1].Value == "older";
                 q._fileTests.Add(n => !n.IsDirectory && n.Modified != default && (older ? n.Modified < cutoff : n.Modified > cutoff));

@@ -10,10 +10,17 @@ internal struct MftRecordInfo
 {
     public bool InUse;
     public bool IsDirectory;
+    /// <summary>Set for extension records, which continue the base record named by BaseRecord.</summary>
+    public bool IsExtension;
     public uint BaseRecord;
+    /// <summary>The base record's sequence number as the extension record remembers it.</summary>
+    public ushort BaseSequence;
+    /// <summary>Bumped by NTFS each time the record is freed, so stale references can be told apart.</summary>
+    public ushort Sequence;
     public bool HasUnnamedData;
     public long LogicalSize;
-    public long AllocatedSize;
+    /// <summary>Clusters actually allocated on disk, counted from the run lists of every stream.</summary>
+    public long AllocatedClusters;
     public long ModifiedTime;
     public bool HasStandardInfo;
     public uint Attributes;
@@ -56,6 +63,13 @@ internal static class MftRecord
         return true;
     }
 
+    /// <summary>The number a record stores for itself (since NTFS 3.1), or -1 when it has none.</summary>
+    public static long RecordNumber(ReadOnlySpan<byte> rec) =>
+        rec.Length >= 0x30 && U16(rec, 4) >= 0x30 ? U32(rec, 0x2C) : -1;
+
+    /// <summary>Where a $FILE_NAME's characters sit in the record; strings are only built for names we keep.</summary>
+    private readonly record struct NameRef(uint Parent, byte Namespace, int Offset, int Chars);
+
     /// <summary>Reads the record header and the attributes diskmap cares about. Call after <see cref="ApplyFixup"/>.</summary>
     public static bool Parse(ReadOnlySpan<byte> rec, ref MftRecordInfo info, List<MftName> names)
     {
@@ -63,8 +77,17 @@ internal static class MftRecord
         ushort flags = U16(rec, 0x16);
         info.InUse = (flags & 1) != 0;
         info.IsDirectory = (flags & 2) != 0;
-        info.BaseRecord = (uint)(U64(rec, 0x20) & 0xFFFF_FFFF_FFFF);
+        info.Sequence = U16(rec, 0x10);
+        ulong baseRef = U64(rec, 0x20);
+        info.IsExtension = baseRef != 0;
+        info.BaseRecord = (uint)(baseRef & 0xFFFF_FFFF_FFFF);
+        info.BaseSequence = (ushort)(baseRef >> 48);
         if (!info.InUse) return true;
+
+        // Most files carry a long name plus an 8.3 short name; building strings only for the names
+        // we keep saves a large share of the allocations on a big volume.
+        Span<NameRef> found = stackalloc NameRef[8];
+        int foundCount = 0;
 
         int offset = U16(rec, 0x14);
         int limit = (int)Math.Min(U32(rec, 0x18), (uint)rec.Length);
@@ -77,7 +100,6 @@ internal static class MftRecord
             var attr = rec.Slice(offset, length);
             bool nonResident = attr[8] != 0;
             int nameLength = attr[9];
-            ushort attrFlags = U16(attr, 0x0C);
 
             switch (type)
             {
@@ -94,16 +116,19 @@ internal static class MftRecord
                 }
                 case AttrFileName when !nonResident:
                 {
-                    var value = ResidentValue(attr);
-                    if (value.Length >= 0x42)
+                    int valueLength = (int)U32(attr, 0x10);
+                    int valueOffset = U16(attr, 0x14);
+                    if (valueLength >= 0x42 && valueOffset + valueLength <= attr.Length)
                     {
+                        var value = attr.Slice(valueOffset, valueLength);
                         uint parent = (uint)(U64(value, 0) & 0xFFFF_FFFF_FFFF);
                         int chars = value[0x40];
                         byte ns = value[0x41];
                         if (0x42 + chars * 2 <= value.Length)
                         {
-                            var name = new string(MemoryMarshal.Cast<byte, char>(value.Slice(0x42, chars * 2)));
-                            names.Add(new MftName(parent, name, ns));
+                            var nameRef = new NameRef(parent, ns, offset + valueOffset + 0x42, chars);
+                            if (foundCount < found.Length) found[foundCount++] = nameRef;
+                            else names.Add(Materialize(rec, nameRef));
                         }
                     }
                     break;
@@ -118,26 +143,22 @@ internal static class MftRecord
                             info.HasUnnamedData = true;
                         }
                     }
-                    else if (attr.Length >= 0x40 && U64(attr, 0x10) == 0)
+                    else if (attr.Length >= 0x40)
                     {
-                        long allocated = (long)U64(attr, 0x28);
-                        long dataSize = (long)U64(attr, 0x30);
-                        bool compressedOrSparse = (attrFlags & 0x8001) != 0;
-                        if (compressedOrSparse && attr.Length >= 0x48 && U16(attr, 0x20) >= 0x48)
+                        // The header's "allocated size" can't be trusted for streams that are sparse
+                        // without saying so: $BadClus:$Bad claims the whole volume. The run list says
+                        // exactly which clusters are in use, for every piece of a split attribute.
+                        info.AllocatedClusters += AllocatedClusters(attr, U16(attr, 0x20));
+                        if (nameLength == 0 && U64(attr, 0x10) == 0)
                         {
-                            allocated = (long)U64(attr, 0x40);
-                        }
-                        info.AllocatedSize += allocated;
-                        if (nameLength == 0)
-                        {
-                            info.LogicalSize = dataSize;
+                            info.LogicalSize = (long)U64(attr, 0x30);
                             info.HasUnnamedData = true;
                         }
                     }
                     break;
                 }
                 case AttrIndexAllocation when nonResident:
-                    if (attr.Length >= 0x40 && U64(attr, 0x10) == 0) info.AllocatedSize += (long)U64(attr, 0x28);
+                    if (attr.Length >= 0x40) info.AllocatedClusters += AllocatedClusters(attr, U16(attr, 0x20));
                     break;
                 case AttrReparsePoint:
                     if (!nonResident)
@@ -153,8 +174,41 @@ internal static class MftRecord
             }
             offset += length;
         }
+
+        bool hasLongName = names.Count > 0;
+        for (int i = 0; i < foundCount; i++) hasLongName |= found[i].Namespace != NamespaceDos;
+        for (int i = 0; i < foundCount; i++)
+        {
+            if (hasLongName && found[i].Namespace == NamespaceDos) continue;
+            names.Add(Materialize(rec, found[i]));
+        }
         return true;
     }
+
+    private static long AllocatedClusters(ReadOnlySpan<byte> attr, int runOffset) =>
+        runOffset > 0 && runOffset < attr.Length ? CountAllocatedClusters(attr[runOffset..]) : 0;
+
+    /// <summary>Sums the clusters of a run list, skipping sparse runs (runs without a disk location).</summary>
+    internal static long CountAllocatedClusters(ReadOnlySpan<byte> runs)
+    {
+        long total = 0;
+        int i = 0;
+        while (i < runs.Length && runs[i] != 0)
+        {
+            int lengthSize = runs[i] & 0x0F;
+            int offsetSize = runs[i] >> 4;
+            i++;
+            if (lengthSize == 0 || lengthSize > 8 || offsetSize > 8 || i + lengthSize + offsetSize > runs.Length) break;
+            long clusters = 0;
+            for (int b = 0; b < lengthSize; b++) clusters |= (long)runs[i + b] << (8 * b);
+            if (offsetSize != 0 && clusters > 0) total += clusters;
+            i += lengthSize + offsetSize;
+        }
+        return total;
+    }
+
+    private static MftName Materialize(ReadOnlySpan<byte> rec, NameRef r) =>
+        new(r.Parent, new string(MemoryMarshal.Cast<byte, char>(rec.Slice(r.Offset, r.Chars * 2))), r.Namespace);
 
     private static ReadOnlySpan<byte> ResidentValue(ReadOnlySpan<byte> attr)
     {

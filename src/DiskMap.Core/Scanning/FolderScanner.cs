@@ -21,9 +21,12 @@ public sealed class FolderScanner
     {
         var watch = Stopwatch.StartNew();
         var root = new DiskNode(driveRoot, NodeFlags.Directory);
+        var catalog = Task.Run(Games.GameCatalog.Load, ct);
         long items = ScanInto(root, driveRoot, Volume.ClusterSize(driveRoot), progress, ct, out int unreadable);
+        long walkMs = watch.ElapsedMilliseconds;
         Volume.TryGetFreeSpace(driveRoot, out long free, out long total);
-        ScanPostProcessor.Run(root, total, free, ct);
+        ScanPostProcessor.Run(root, total, free, ct, catalog.GetAwaiter().GetResult());
+        long postMs = watch.ElapsedMilliseconds - walkMs;
         progress?.Report(new ScanProgress(items, root.Size, null, 1));
         return new ScanResult
         {
@@ -36,6 +39,7 @@ public sealed class FolderScanner
             ScannedAt = DateTime.Now,
             ItemCount = items,
             UnreadableFolders = unreadable,
+            Timings = $"walk {walkMs} ms, classify+sum {postMs} ms",
         };
     }
 
@@ -73,7 +77,7 @@ public sealed class FolderScanner
                 {
                     var enumerable = new FileSystemEnumerable<Entry>(path,
                         (ref FileSystemEntry e) => new Entry(e.FileName.ToString(), e.IsDirectory, e.Length,
-                            e.LastWriteTimeUtc.LocalDateTime, e.Attributes), options);
+                            e.LastWriteTimeUtc.UtcDateTime, e.Attributes), options);
                     foreach (var e in enumerable)
                     {
                         bool reparse = (e.Attributes & FileAttributes.ReparsePoint) != 0;

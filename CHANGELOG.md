@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.1.1] - 2026-10-28
+
+- Fixed drive totals above 100%: NTFS metadata such as `$BadClus` no longer counts as the size of the
+  whole drive. Sizes now come from the clusters each file actually occupies.
+- File table records left over from deleted files are ignored instead of being counted towards the file
+  that now uses their slot.
+- The fast scan now also works on drives where Windows refuses raw volume reads, by reading the disk
+  under the volume or asking NTFS for each record.
+- Faster scans: a system drive with two million files takes about 4 seconds instead of 7.
+
 ## [0.1.0] - 2026-10-27
 
 First public release.

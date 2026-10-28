@@ -214,13 +214,11 @@ public sealed class AppState
                 return (result, Snapshot.From(result));
             }, cts.Token);
 
-            // Scanning leaves a lot of short-lived garbage behind; give it back to Windows now.
-            await Task.Run(() =>
-            {
-                System.Runtime.GCSettings.LargeObjectHeapCompactionMode = System.Runtime.GCLargeObjectHeapCompactionMode.CompactOnce;
-                GC.Collect(2, GCCollectionMode.Aggressive, blocking: true, compacting: true);
-            });
+            // Scanning leaves a lot of short-lived garbage behind. Collect it in the background
+            // (a blocking, compacting collection froze the window for a second on big drives).
+            GC.Collect(2, GCCollectionMode.Forced, blocking: false, compacting: false);
 
+            var after = System.Diagnostics.Stopwatch.StartNew();
             var baseline = await Task.Run(() => SnapshotStore.LoadBaseline(drive.Root, DateTime.Now));
             drive.Scan = scan;
             drive.HasBaseline = baseline != null;
@@ -244,7 +242,8 @@ public sealed class AppState
             drive.Refresh(Settings);
             Folder = scan.Root;
             IsScanning = false;
-            Log.Write($"Scanned {drive.Root} with {scan.Method} in {scan.Duration.TotalSeconds:0.0}s, {scan.ItemCount:N0} items.");
+            Log.Write($"Scanned {drive.Root} with {scan.Method} in {scan.Duration.TotalSeconds:0.0}s, {scan.ItemCount:N0} items " +
+                      $"({scan.Timings}; history and cleanup {after.ElapsedMilliseconds} ms).");
             Raise(StateChange.Scanned);
         }
         catch (OperationCanceledException)

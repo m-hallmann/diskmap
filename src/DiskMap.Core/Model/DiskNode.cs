@@ -28,12 +28,16 @@ public sealed class DiskNode
 {
     private static int s_nextId;
 
-    public DiskNode(string name, NodeFlags flags)
+    public DiskNode(string name, NodeFlags flags) : this(name, flags, 0)
+    {
+    }
+
+    internal DiskNode(string name, NodeFlags flags, int childCapacity)
     {
         Name = name;
         Flags = flags;
         Id = Interlocked.Increment(ref s_nextId);
-        if ((flags & NodeFlags.Directory) != 0) Children = new List<DiskNode>();
+        if ((flags & NodeFlags.Directory) != 0) Children = new List<DiskNode>(childCapacity);
     }
 
     public int Id { get; }
@@ -54,6 +58,7 @@ public sealed class DiskNode
     /// <summary>Bytes of files that also have a name inside this folder but are counted elsewhere.</summary>
     public long LinkedElsewhere { get; internal set; }
 
+    /// <summary>Last write time. Scans store UTC; <see cref="Format.Date"/> converts for display.</summary>
     public DateTime Modified { get; internal set; }
 
     /// <summary>Own category for files, dominant category for folders.</summary>

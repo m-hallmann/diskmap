@@ -32,9 +32,12 @@ public static class ScanPostProcessor
     {
         var games = catalog ?? GameCatalog.Load();
         Classify(root, root.Name.TrimEnd('\\'), new Context(Zone.None, false, false, false), games, 0, ct);
-        AggregateSubtree(root);
+        Aggregate(root, 0);
         AddUnaccounted(root, totalBytes - freeBytes);
     }
+
+    /// <summary>The first few folder levels are processed in parallel; subtrees are independent.</summary>
+    private const int ParallelDepth = 3;
 
     private static void Classify(DiskNode dir, string path, Context ctx, GameCatalog games, int depth, CancellationToken ct)
     {
@@ -42,19 +45,39 @@ public static class ScanPostProcessor
         if (ctx.Protected || dir.IsSynthetic && dir.IsProtected) dir.Flags |= NodeFlags.Protected;
         dir.Category = ZoneCategory(ctx.Zone, Category.Other);
 
+        List<(DiskNode Node, string Path, Context Ctx)>? subfolders = depth < ParallelDepth ? new() : null;
         foreach (var child in dir.Children!)
         {
             if (child.IsDirectory)
             {
                 string childPath = child.IsSynthetic ? path : path + "\\" + child.Name;
                 var childCtx = ChildContext(dir, child, childPath, ctx, depth, games);
-                Classify(child, childPath, childCtx, games, depth + 1, ct);
+                if (subfolders != null) subfolders.Add((child, childPath, childCtx));
+                else Classify(child, childPath, childCtx, games, depth + 1, ct);
             }
             else
             {
                 ClassifyFile(child, ctx, depth);
             }
         }
+        if (subfolders is { Count: > 0 })
+        {
+            Parallel.ForEach(subfolders, s => Classify(s.Node, s.Path, s.Ctx, games, depth + 1, ct));
+        }
+    }
+
+    private static void Aggregate(DiskNode node, int depth)
+    {
+        if (!node.IsDirectory) return;
+        if (depth < ParallelDepth && node.Children!.Count > 1)
+        {
+            Parallel.ForEach(node.Children!, c => Aggregate(c, depth + 1));
+        }
+        else
+        {
+            foreach (var child in node.Children!) Aggregate(child, depth + 1);
+        }
+        SumChildren(node);
     }
 
     /// <summary>Folders inside a user profile that must stay, even though their contents can go.</summary>
@@ -193,13 +216,19 @@ public static class ScanPostProcessor
     public static void AggregateSubtree(DiskNode node)
     {
         if (!node.IsDirectory) return;
+        foreach (var child in node.Children!) AggregateSubtree(child);
+        SumChildren(node);
+    }
+
+    /// <summary>Adds up a folder's direct children (which must already be summed).</summary>
+    private static void SumChildren(DiskNode node)
+    {
         long size = node.Size, logical = 0, files = 0, linked = node.LinkedElsewhere;
         var cats = new long[Categories.Count];
         cats[(int)node.Category] += node.Size;
         DateTime newest = node.Modified;
         foreach (var child in node.Children!)
         {
-            AggregateSubtree(child);
             size += child.Size;
             logical += child.Logical;
             files += child.FileCount;

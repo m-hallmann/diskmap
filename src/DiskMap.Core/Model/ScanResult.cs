@@ -21,6 +21,9 @@ public sealed class ScanResult
     public int UnreadableFolders { get; init; }
     public IReadOnlyList<string> Warnings { get; init; } = [];
 
+    /// <summary>How long each phase took, for the log.</summary>
+    public string Timings { get; init; } = "";
+
     public long UsedBytes => TotalBytes - FreeBytes;
 
     public void RefreshFreeSpace()

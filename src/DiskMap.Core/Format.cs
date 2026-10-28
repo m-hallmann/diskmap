@@ -31,6 +31,7 @@ public static class Format
 
     public static string Date(DateTime local)
     {
+        if (local.Kind == DateTimeKind.Utc) local = local.ToLocalTime();
         var today = DateTime.Today;
         if (local.Date == today) return "Today, " + local.ToString("t", CultureInfo.CurrentCulture);
         if (local.Date == today.AddDays(-1)) return "Yesterday, " + local.ToString("t", CultureInfo.CurrentCulture);

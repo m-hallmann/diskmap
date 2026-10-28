@@ -10,7 +10,10 @@ internal static partial class Kernel32
     public const uint FILE_SHARE_READ = 1, FILE_SHARE_WRITE = 2, FILE_SHARE_DELETE = 4;
     public const uint OPEN_EXISTING = 3;
     public const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    public const uint FILE_FLAG_NO_BUFFERING = 0x20000000;
     public const uint FSCTL_GET_NTFS_VOLUME_DATA = 0x00090064;
+    public const uint FSCTL_GET_NTFS_FILE_RECORD = 0x00090068;
+    public const uint IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS = 0x00560000;
     public const uint MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
     public const uint INVALID_FILE_SIZE = 0xFFFFFFFF;
 

@@ -77,15 +77,22 @@ public class MapLayoutTests
 
 public class MftRecordTests
 {
+    /// <summary>One run of 89 clusters at LCN 0x1234 (89 × 4 KB = 364,544 bytes).</summary>
+    private static readonly byte[] s_realRun = [0x21, 0x59, 0x34, 0x12, 0x00];
+
     /// <summary>Builds a 1 KB FILE record with a $FILE_NAME and a non-resident $DATA attribute.</summary>
-    private static byte[] Record(string name, uint parent, long dataSize, long allocated, ushort flags = 1)
+    private static byte[] Record(string name, uint parent, long dataSize, long allocated, ushort flags = 1, byte[]? runs = null,
+        ushort sequence = 1, ulong baseRef = 0, long lowestVcn = 0, uint number = 0)
     {
         var r = new byte[1024];
         BinaryPrimitives.WriteUInt32LittleEndian(r, MftRecord.Signature);
         BinaryPrimitives.WriteUInt16LittleEndian(r.AsSpan(4), 0x30);  // USA offset
         BinaryPrimitives.WriteUInt16LittleEndian(r.AsSpan(6), 3);     // USA count
+        BinaryPrimitives.WriteUInt16LittleEndian(r.AsSpan(0x10), sequence);
         BinaryPrimitives.WriteUInt16LittleEndian(r.AsSpan(0x14), 0x38); // first attribute
         BinaryPrimitives.WriteUInt16LittleEndian(r.AsSpan(0x16), flags);
+        BinaryPrimitives.WriteUInt64LittleEndian(r.AsSpan(0x20), baseRef);
+        BinaryPrimitives.WriteUInt32LittleEndian(r.AsSpan(0x2C), number);
         int o = 0x38;
 
         // $FILE_NAME, resident
@@ -106,9 +113,11 @@ public class MftRecordTests
         BinaryPrimitives.WriteUInt32LittleEndian(r.AsSpan(o), 0x80);
         BinaryPrimitives.WriteUInt32LittleEndian(r.AsSpan(o + 4), 0x48);
         r[o + 8] = 1;
+        BinaryPrimitives.WriteUInt64LittleEndian(r.AsSpan(o + 0x10), (ulong)lowestVcn);
         BinaryPrimitives.WriteUInt16LittleEndian(r.AsSpan(o + 0x20), 0x40);
         BinaryPrimitives.WriteUInt64LittleEndian(r.AsSpan(o + 0x28), (ulong)allocated);
         BinaryPrimitives.WriteUInt64LittleEndian(r.AsSpan(o + 0x30), (ulong)dataSize);
+        (runs ?? s_realRun).CopyTo(r, o + 0x40);
         o += 0x48;
 
         BinaryPrimitives.WriteUInt32LittleEndian(r.AsSpan(o), 0xFFFFFFFF);
@@ -137,10 +146,30 @@ public class MftRecordTests
         Assert.True(info.InUse);
         Assert.False(info.IsDirectory);
         Assert.Equal(360_448, info.LogicalSize);
-        Assert.Equal(364_544, info.AllocatedSize);
+        Assert.Equal(89, info.AllocatedClusters);
         var n = Assert.Single(names);
         Assert.Equal("notepad.exe", n.Name);
         Assert.Equal(1234u, n.Parent);
+    }
+
+    [Fact]
+    public void Sparse_stream_that_claims_the_whole_volume_counts_nothing()
+    {
+        // Like $BadClus:$Bad: the header says 464 GB allocated, but the only run is sparse (no LCN).
+        byte[] sparseOnly = [0x04, 0x00, 0x00, 0x00, 0x07, 0x00];
+        var rec = Record("$BadClus", parent: 5, dataSize: 464L << 30, allocated: 464L << 30, runs: sparseOnly);
+        Assert.True(MftRecord.ApplyFixup(rec));
+        var info = default(MftRecordInfo);
+        Assert.True(MftRecord.Parse(rec, ref info, new List<MftName>()));
+        Assert.Equal(0, info.AllocatedClusters);
+    }
+
+    [Fact]
+    public void Counts_only_runs_that_have_a_disk_location()
+    {
+        // 0x10 sparse clusters, then 5 real clusters at offset +0x1000.
+        byte[] runs = [0x01, 0x10, 0x21, 0x05, 0x00, 0x10, 0x00];
+        Assert.Equal(5, MftRecord.CountAllocatedClusters(runs));
     }
 
     [Fact]
@@ -149,6 +178,45 @@ public class MftRecordTests
         var rec = Record("a.txt", 5, 10, 4096);
         rec[1022] ^= 0xFF;
         Assert.False(MftRecord.ApplyFixup(rec));
+    }
+
+    [Fact]
+    public void Leftover_extension_record_of_a_deleted_file_is_ignored()
+    {
+        var store = new MftScanner.RecordStore(300, 4096);
+        void Add(uint number, byte[] rec)
+        {
+            Assert.True(MftRecord.ApplyFixup(rec));
+            var info = default(MftRecordInfo);
+            var names = new List<MftName>();
+            Assert.True(MftRecord.Parse(rec, ref info, names));
+            store.Add(number, in info, names);
+        }
+
+        Add(5, Record(".", parent: 5, dataSize: 0, allocated: 0, flags: 3, runs: [0x00], sequence: 5));
+        Add(100, Record("report.pdf", parent: 5, dataSize: 200_000, allocated: 364_544, sequence: 3));
+        // Left behind by a 300 MB file that owned record 100 before it was deleted (sequence 2).
+        byte[] bigRun = [0x23, 0x00, 0x2C, 0x01, 0x00, 0x10, 0x00]; // 0x12C00 clusters = 300 MB
+        Add(200, Record("old.mkv", parent: 5, dataSize: 300L << 20, allocated: 300L << 20, runs: bigRun,
+            baseRef: (2UL << 48) | 100, lowestVcn: 100));
+        // A genuine continuation of report.pdf: 10 more clusters.
+        Add(201, Record("report.pdf", parent: 5, dataSize: 0, allocated: 40_960, runs: [0x21, 0x0A, 0x00, 0x20, 0x00],
+            baseRef: (3UL << 48) | 100, lowestVcn: 89));
+
+        var warnings = new System.Collections.Concurrent.ConcurrentQueue<string>();
+        store.ApplyDeferred(warnings);
+        var root = store.BuildTree(@"C:\", 5, 24, out _);
+
+        var file = root.Child("report.pdf")!;
+        Assert.Equal((89 + 10) * 4096L, file.Size);
+        Assert.Equal(200_000, file.Logical);
+        Assert.Contains(warnings, w => w.Contains("report.pdf +300 MB"));
+    }
+
+    [Fact]
+    public void Reads_the_number_a_record_stores_for_itself()
+    {
+        Assert.Equal(4242, MftRecord.RecordNumber(Record("a.txt", 5, 10, 4096, number: 4242)));
     }
 
     [Fact]
