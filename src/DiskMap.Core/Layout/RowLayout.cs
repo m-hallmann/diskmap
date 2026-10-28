@@ -17,10 +17,10 @@ public static class RowLayout
 {
     /// <summary>
     /// Lays out <paramref name="weights"/> (sorted largest first) inside <paramref name="bounds"/>. A row also keeps
-    /// taking items when what is left would only make a row thinner than <paramref name="minRow"/>, so the small
-    /// items at the end don't turn into hairline rows.
+    /// taking items when what is left would only make a row thinner than <paramref name="minRow"/> (about one
+    /// label tall), so the small items at the end don't turn into thin, unlabelled strips.
     /// </summary>
-    public static void Layout(ReadOnlySpan<double> weights, RectD bounds, Span<RectD> result, double minRow = 14)
+    public static void Layout(ReadOnlySpan<double> weights, RectD bounds, Span<RectD> result, double minRow = 24)
     {
         double total = 0;
         foreach (var weight in weights) total += weight;

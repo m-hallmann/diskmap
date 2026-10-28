@@ -155,7 +155,7 @@ public class RowLayoutTests
             Assert.Equal(bounds.W, row.Sum(r => r.W), 6);
             Assert.All(row, r => Assert.Equal(row.First().H, r.H, 6));
             Assert.True(row.First().H <= previous + 1e-6, "rows get shorter towards the bottom");
-            Assert.True(row.First().H >= 14 - 1e-6, "no hairline rows");
+            Assert.True(row.First().H >= 24 - 1e-6, "every row is tall enough for a label");
             previous = row.First().H;
         }
         Assert.Equal(bounds.Bottom, rects.Max(r => r.Bottom), 6);
